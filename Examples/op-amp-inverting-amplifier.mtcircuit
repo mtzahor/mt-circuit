@@ -1,0 +1,291 @@
+{
+  "components" : [
+    {
+      "id" : "90D26C09-9CFF-483C-AB71-7478049FFFBC",
+      "kind" : "voltageSource",
+      "name" : "V1",
+      "position" : {
+        "x" : 6,
+        "y" : 8
+      },
+      "rotation" : 1,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 0.5,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "sine"
+      }
+    },
+    {
+      "id" : "56324CB3-5762-479D-9F5E-0761E87CBAE1",
+      "kind" : "netLabel",
+      "name" : "in",
+      "position" : {
+        "x" : 8,
+        "y" : 6
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "543056D2-CA38-4032-AE6E-2AF67FEE61AB",
+      "kind" : "resistor",
+      "name" : "R1",
+      "position" : {
+        "x" : 12,
+        "y" : 6
+      },
+      "rotation" : 0,
+      "value" : 1000,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "1922C44D-00AE-4812-B54F-3F14037FA829",
+      "kind" : "opAmp",
+      "name" : "U1",
+      "position" : {
+        "x" : 20,
+        "y" : 7
+      },
+      "rotation" : 0,
+      "value" : 100000,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "AA14A6DB-8327-4005-B1CF-EC631C865949",
+      "kind" : "resistor",
+      "name" : "R2",
+      "position" : {
+        "x" : 18,
+        "y" : 2
+      },
+      "rotation" : 0,
+      "value" : 10000,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "A0518909-976A-4DFE-8678-B62A11799D26",
+      "kind" : "netLabel",
+      "name" : "out",
+      "position" : {
+        "x" : 26,
+        "y" : 7
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "F502863D-E793-49E2-9A38-894C0B42DC42",
+      "kind" : "ground",
+      "name" : "GND",
+      "position" : {
+        "x" : 6,
+        "y" : 12
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    }
+  ],
+  "formatVersion" : 1,
+  "simulation" : {
+    "analysis" : "transient",
+    "initialConditions" : "zero",
+    "integrationMethod" : "trapezoidal",
+    "pointsPerDecade" : 50,
+    "startFrequency" : 1,
+    "stopFrequency" : 1000000,
+    "stopTime" : 0.003,
+    "timeStep" : 0
+  },
+  "wires" : [
+    {
+      "end" : {
+        "x" : 6,
+        "y" : 12
+      },
+      "id" : "A34C45A5-3112-4BE2-A60D-1DD9A3CB257E",
+      "start" : {
+        "x" : 6,
+        "y" : 10
+      }
+    },
+    {
+      "end" : {
+        "x" : 10,
+        "y" : 6
+      },
+      "id" : "F8F94863-9488-49DB-A713-2CFFA908494E",
+      "start" : {
+        "x" : 6,
+        "y" : 6
+      }
+    },
+    {
+      "end" : {
+        "x" : 18,
+        "y" : 6
+      },
+      "id" : "0E0957BD-309F-4DAC-8017-438180044288",
+      "start" : {
+        "x" : 14,
+        "y" : 6
+      }
+    },
+    {
+      "end" : {
+        "x" : 18,
+        "y" : 12
+      },
+      "id" : "66202ABF-EBF2-4D66-8F92-90A68CB034F3",
+      "start" : {
+        "x" : 18,
+        "y" : 8
+      }
+    },
+    {
+      "end" : {
+        "x" : 16,
+        "y" : 2
+      },
+      "id" : "6AFD923B-57CF-4DB9-87A9-353910E0D12E",
+      "start" : {
+        "x" : 16,
+        "y" : 6
+      }
+    },
+    {
+      "end" : {
+        "x" : 24,
+        "y" : 2
+      },
+      "id" : "9BB6B290-0CEB-4659-BDD8-83F98E0E2548",
+      "start" : {
+        "x" : 20,
+        "y" : 2
+      }
+    },
+    {
+      "end" : {
+        "x" : 24,
+        "y" : 7
+      },
+      "id" : "8CE4DD29-FAB7-4310-80A0-69FD7E598FC8",
+      "start" : {
+        "x" : 24,
+        "y" : 2
+      }
+    },
+    {
+      "end" : {
+        "x" : 28,
+        "y" : 7
+      },
+      "id" : "D43438A0-221B-4BE6-A9D4-38BA87028DAA",
+      "start" : {
+        "x" : 22,
+        "y" : 7
+      }
+    },
+    {
+      "end" : {
+        "x" : 18,
+        "y" : 12
+      },
+      "id" : "12938226-3E71-4D57-A715-5982870757DB",
+      "start" : {
+        "x" : 6,
+        "y" : 12
+      }
+    }
+  ]
+}

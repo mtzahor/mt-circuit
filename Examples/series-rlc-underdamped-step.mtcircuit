@@ -1,0 +1,258 @@
+{
+  "components" : [
+    {
+      "id" : "2CDE2E0D-EA0F-45C2-85F9-F20F7B78BA73",
+      "kind" : "voltageSource",
+      "name" : "V1",
+      "position" : {
+        "x" : 6,
+        "y" : 8
+      },
+      "rotation" : 1,
+      "value" : 1,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "step"
+      }
+    },
+    {
+      "id" : "8250A3BA-B216-4DF9-B7C9-CDDA1C314C75",
+      "kind" : "netLabel",
+      "name" : "in",
+      "position" : {
+        "x" : 8,
+        "y" : 6
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "43068BD5-8363-4953-9ADB-E382A6E97E0A",
+      "kind" : "resistor",
+      "name" : "R1",
+      "position" : {
+        "x" : 12,
+        "y" : 6
+      },
+      "rotation" : 0,
+      "value" : 20,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "DFD2975D-F6A4-4E34-8DF6-C686CF3A2FA2",
+      "kind" : "inductor",
+      "name" : "L1",
+      "position" : {
+        "x" : 18,
+        "y" : 6
+      },
+      "rotation" : 0,
+      "value" : 0.001,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "F39A6386-4694-4D2C-956B-3985F3D0B303",
+      "kind" : "netLabel",
+      "name" : "out",
+      "position" : {
+        "x" : 23,
+        "y" : 6
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "8CC20DBA-857C-43E6-875C-AB62CE7DEA46",
+      "kind" : "capacitor",
+      "name" : "C1",
+      "position" : {
+        "x" : 26,
+        "y" : 8
+      },
+      "rotation" : 1,
+      "value" : 1e-06,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "E5A605A2-12A4-4C38-B1CA-A00B5712BBAC",
+      "kind" : "ground",
+      "name" : "GND",
+      "position" : {
+        "x" : 6,
+        "y" : 12
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    }
+  ],
+  "formatVersion" : 1,
+  "simulation" : {
+    "analysis" : "transient",
+    "initialConditions" : "zero",
+    "integrationMethod" : "trapezoidal",
+    "pointsPerDecade" : 50,
+    "startFrequency" : 1,
+    "stopFrequency" : 1000000,
+    "stopTime" : 0.002,
+    "timeStep" : 5e-07
+  },
+  "wires" : [
+    {
+      "end" : {
+        "x" : 6,
+        "y" : 12
+      },
+      "id" : "DED2029F-A290-4577-B647-5D225C94FF07",
+      "start" : {
+        "x" : 6,
+        "y" : 10
+      }
+    },
+    {
+      "end" : {
+        "x" : 10,
+        "y" : 6
+      },
+      "id" : "C533E5DA-ACE4-44FB-8306-EE5C4D0A4D53",
+      "start" : {
+        "x" : 6,
+        "y" : 6
+      }
+    },
+    {
+      "end" : {
+        "x" : 16,
+        "y" : 6
+      },
+      "id" : "AC1F540F-D6AF-4213-81E8-9D38AA065EFF",
+      "start" : {
+        "x" : 14,
+        "y" : 6
+      }
+    },
+    {
+      "end" : {
+        "x" : 26,
+        "y" : 6
+      },
+      "id" : "884AC61E-DA9F-43B3-B7D6-714AF76AA510",
+      "start" : {
+        "x" : 20,
+        "y" : 6
+      }
+    },
+    {
+      "end" : {
+        "x" : 26,
+        "y" : 12
+      },
+      "id" : "622FF732-0A16-41BC-A8F9-58D4836B6483",
+      "start" : {
+        "x" : 26,
+        "y" : 10
+      }
+    },
+    {
+      "end" : {
+        "x" : 26,
+        "y" : 12
+      },
+      "id" : "A3C4195F-0A6C-4A36-9B76-1EBA859CAE6C",
+      "start" : {
+        "x" : 6,
+        "y" : 12
+      }
+    }
+  ]
+}
