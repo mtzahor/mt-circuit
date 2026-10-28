@@ -9,6 +9,11 @@ struct MTCircuitApp: App {
         }
         .defaultSize(width: 1280, height: 820)
         .commands { CircuitCommands() }
+
+        Window("Dive In", id: DiveInModel.windowID) {
+            DiveInView()
+        }
+        .defaultSize(width: 1060, height: 800)
     }
 }
 
@@ -50,6 +55,10 @@ struct CircuitCommands: Commands {
                 .keyboardShortcut("0")
             Button("Zoom to Fit") { editor?.canvas?.zoomToFit() }
                 .keyboardShortcut("9")
+            Divider()
+            Button(editor?.diveInTopic.map { "Dive Into \($0.title)" } ?? "Dive In") { editor?.diveIn() }
+                .keyboardShortcut(.downArrow)
+                .disabled(editor?.diveInTopic == nil)
             Divider()
         }
     }

@@ -41,6 +41,14 @@ private struct ComponentInspector: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
+                    if DiveIn.topic(for: kind) != nil {
+                        Spacer()
+                        Button { editor.diveIn() } label: {
+                            Label("Dive In", systemImage: "water.waves.and.arrow.down")
+                        }
+                        .controlSize(.small)
+                        .help("See what's inside a \(kind.displayName.lowercased()) (⌘↓)")
+                    }
                 }
             }
 

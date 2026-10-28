@@ -32,6 +32,15 @@ Swift, SwiftUI and AppKit only: no web views, Electron, or third-party dependenc
   each goal. Hints, a worked answer, and a solution circuit are available for each lesson.
   Completed lessons are remembered across launches. The lesson is saved with the document, so a
   saved lesson opens in the tutorial again.
+- **Dive In** (`⌘↓`, the inspector's Dive In button, or right-click a part): a window of linked
+  topics on what is inside each part. The op-amp opens up into a seven-transistor circuit with its
+  input, gain, and output stages outlined; point at a stage's explanation to find it in the
+  schematic. From there, topics lead to the differential pair, current mirror, and push-pull output
+  stage, then to the BJT and down to the pn junction. Drawings show the physics: carriers crossing a
+  pn junction with forward or reverse bias, electrons crossing a BJT's base, and a MOSFET's channel
+  forming as you raise its gate voltage. Topics with a circuit open it in a new window to simulate,
+  such as the transistor-level op-amp in an inverting amplifier, and part topics link to their
+  tutorial lesson. Window ▸ Dive In opens the window without a selection.
 - **Auto-run**: re-simulates after every edit.
 - **Documents**: `.mtcircuit` files (JSON) with standard open, save, autosave, and versions.
   File ▸ New from Example has twelve starter circuits, also included in `Examples/`.
@@ -71,6 +80,7 @@ System Settings ▸ Privacy & Security ▸ Open Anyway.
 | `Space`, `⌘R`, right-click while placing | Rotate 90° |
 | `⌫` | Delete selection |
 | `⌘↩` | Run simulation |
+| `⌘↓` | Dive into the selected part |
 | Pinch, `⌘+` / `⌘−` / `⌘0` / `⌘9` | Zoom in / out / actual size / fit |
 
 Every circuit needs a ground symbol. Net labels name nets in the results, and labels with
@@ -122,6 +132,7 @@ Sources/CircuitCore/       Platform-independent model and simulation engine
   Examples.swift           Built-in example circuits
   Lesson.swift             Tutorial lessons and goals, measured by simulating the learner's circuit
   Tutorial.swift           The tutorial's lessons: explanations, challenges, starters, and solutions
+  DiveIn.swift             Dive In topics: explanations, figures, links, and their circuits
 Sources/MTCircuit/         macOS app
   SchematicCanvasView.swift  AppKit canvas: drawing, mouse, keyboard, edit actions
   SymbolRenderer.swift       Core Graphics schematic symbols and toolbar icons
@@ -131,6 +142,8 @@ Sources/MTCircuit/         macOS app
   InspectorView.swift        Property inspector
   LessonPanel.swift          Tutorial side panel: lesson text, live goal checks, hints, answer
   TutorialModel.swift        Per-window goal checking, and lesson progress kept across launches
+  DiveInView.swift           Dive In window: topic list, history, pages, and schematic figures
+  DiveInIllustrations.swift  Dive In drawings: pn junction, BJT, MOSFET, resistor, capacitor, inductor
 Tests/CircuitCoreTests/    Swift Testing tests (results checked against analytic solutions)
 ```
 

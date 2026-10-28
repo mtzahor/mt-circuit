@@ -6,6 +6,7 @@ struct ContentView: View {
     @StateObject private var editor: EditorModel
     @StateObject private var tutorial: TutorialModel
     @Environment(\.undoManager) private var undoManager
+    @Environment(\.openWindow) private var openWindow
     // State is declared explicitly: the @State macro's plugin ships only with Xcode, not the Command Line Tools.
     private let showInspector = State(initialValue: true)
 
@@ -42,6 +43,7 @@ struct ContentView: View {
         .toolbar { toolbarContent }
         .onAppear {
             editor.undoManager = undoManager
+            editor.openDiveIn = { [openWindow] topic in openWindow.diveIn(to: topic.id) }
             // A lesson simulates from the start, even an empty one, so that its errors guide the learner.
             if !document.circuit.isEmpty || document.circuit.lesson != nil { editor.runSimulation() }
         }
@@ -127,6 +129,7 @@ private struct ToolHint: View {
 /// Onboarding shown on a blank schematic.
 private struct EmptyCircuitView: View {
     @ObservedObject var editor: EditorModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 12) {
@@ -144,6 +147,8 @@ private struct EmptyCircuitView: View {
                     }
                 }
                 .fixedSize()
+                Button("Dive In") { openWindow.diveIn() }
+                    .help("See what's inside each part, from the op-amp down to the pn junction")
             }
         }
         .padding(24)

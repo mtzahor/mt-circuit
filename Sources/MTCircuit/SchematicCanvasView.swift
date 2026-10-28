@@ -296,6 +296,10 @@ final class SchematicCanvasView: NSView {
             editor.selection = [id]
         }
         let menu = NSMenu()
+        if let topic = editor.diveInTopic {
+            menu.addItem(withTitle: "Dive Into \(topic.title)", action: #selector(diveIn(_:)), keyEquivalent: "")
+            menu.addItem(.separator())
+        }
         if editor.selection.isEmpty {
             menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
             menu.addItem(withTitle: "Select All", action: #selector(selectAll(_:)), keyEquivalent: "")
@@ -376,6 +380,7 @@ final class SchematicCanvasView: NSView {
     @objc override func selectAll(_ sender: Any?) { editor.selectAll() }
     @objc func duplicate(_ sender: Any?) { editor.duplicateSelection() }
     @objc func rotateSelection(_ sender: Any?) { editor.rotate() }
+    @objc func diveIn(_ sender: Any?) { editor.diveIn() }
 
     // MARK: - Drawing
 
@@ -394,38 +399,7 @@ final class SchematicCanvasView: NSView {
         let selection = editor.selection
 
         drawNetHighlight(circuit: circuit, connectivity: connectivity, ctx: ctx)
-
-        // Wires
-        ctx.setLineCap(.round)
-        ctx.setLineWidth(SchematicStyle.lineWidth)
-        for wire in circuit.wires {
-            let color = selection.contains(wire.id) ? SchematicStyle.selection : SchematicStyle.wire
-            ctx.setStrokeColor(color.cgColor)
-            ctx.move(to: SchematicStyle.point(wire.start))
-            ctx.addLine(to: SchematicStyle.point(wire.end))
-            ctx.strokePath()
-        }
-
-        // Components
-        for component in circuit.components {
-            let color = selection.contains(component.id) ? SchematicStyle.selection : SchematicStyle.component
-            SymbolRenderer.draw(component, in: ctx, color: color)
-        }
-
-        // Junction dots and unconnected pins.
-        let pins = Set(circuit.components.filter { $0.kind != .netLabel }.flatMap(\.pinPositions))
-        for (point, count) in connectivity.connectionCount {
-            let p = SchematicStyle.point(point)
-            if count >= 3 {
-                ctx.setFillColor(SchematicStyle.wire.cgColor)
-                ctx.fillEllipse(in: CGRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7))
-            } else if count == 1, pins.contains(point) {
-                ctx.setStrokeColor(SchematicStyle.unconnected.withAlphaComponent(0.8).cgColor)
-                ctx.setLineWidth(1)
-                ctx.stroke(CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6))
-            }
-        }
-
+        SymbolRenderer.drawCircuit(circuit, connectivity: connectivity, in: ctx, highlighted: selection)
         drawOperatingPointAnnotations(ctx: ctx)
         drawToolPreview(circuit: circuit, ctx: ctx)
         drawHoverInfo(connectivity: connectivity, ctx: ctx)

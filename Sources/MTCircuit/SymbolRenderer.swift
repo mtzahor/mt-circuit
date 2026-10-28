@@ -92,10 +92,59 @@ enum SymbolRenderer {
         }
     }
 
+    // MARK: - Circuits
+
+    /// Draws a circuit's wires and components, junction dots, and red squares on unconnected pins.
+    /// Items in `highlighted` are drawn in the selection color; parts of the `unvalued` kinds show only their names.
+    static func drawCircuit(
+        _ circuit: Circuit, connectivity: Connectivity, in ctx: CGContext, highlighted: Set<UUID> = [], unvalued: Set<ComponentKind> = []
+    ) {
+        ctx.setLineCap(.round)
+        ctx.setLineWidth(SchematicStyle.lineWidth)
+        for wire in circuit.wires {
+            let color = highlighted.contains(wire.id) ? SchematicStyle.selection : SchematicStyle.wire
+            ctx.setStrokeColor(color.cgColor)
+            ctx.move(to: SchematicStyle.point(wire.start))
+            ctx.addLine(to: SchematicStyle.point(wire.end))
+            ctx.strokePath()
+        }
+
+        for component in circuit.components {
+            let color = highlighted.contains(component.id) ? SchematicStyle.selection : SchematicStyle.component
+            draw(component, in: ctx, color: color, showsValue: !unvalued.contains(component.kind))
+        }
+
+        let pins = Set(circuit.components.filter { $0.kind != .netLabel }.flatMap(\.pinPositions))
+        for (point, count) in connectivity.connectionCount {
+            let p = SchematicStyle.point(point)
+            if count >= 3 {
+                ctx.setFillColor(SchematicStyle.wire.cgColor)
+                ctx.fillEllipse(in: CGRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7))
+            } else if count == 1, pins.contains(point) {
+                ctx.setStrokeColor(SchematicStyle.unconnected.withAlphaComponent(0.8).cgColor)
+                ctx.setLineWidth(1)
+                ctx.stroke(CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6))
+            }
+        }
+    }
+
+    /// Bounds of everything `drawCircuit` draws, including part names and values.
+    static func bounds(of circuit: Circuit, unvalued: Set<ComponentKind> = []) -> CGRect {
+        var rect = CGRect.null
+        for component in circuit.components {
+            rect = rect.union(bounds(of: component, withText: !unvalued.contains(component.kind)))
+        }
+        for wire in circuit.wires {
+            rect = rect.union(CGRect(origin: SchematicStyle.point(wire.start), size: .zero))
+            rect = rect.union(CGRect(origin: SchematicStyle.point(wire.end), size: .zero))
+        }
+        return rect
+    }
+
     // MARK: - Components
 
     /// Draws a component with its labels.
-    static func draw(_ component: Component, in ctx: CGContext, color: NSColor, showText: Bool = true) {
+    static func draw(_ component: Component, in ctx: CGContext, color: NSColor, showText: Bool = true, showsValue: Bool = true) {
         let origin = SchematicStyle.point(component.position)
         if component.kind == .netLabel {
             drawNetLabel(component, in: ctx, color: color)
@@ -113,8 +162,8 @@ enum SymbolRenderer {
         if component.kind == .opAmp {
             drawOpAmpDecorations(component, at: origin, in: ctx, color: color)
         }
-        if showText, component.kind.hasValue {
-            drawText(for: component, at: origin)
+        if showText {
+            for (text, point) in textLayout(for: component, showsValue: showsValue) { text.draw(at: point) }
         }
     }
 
@@ -347,7 +396,22 @@ enum SymbolRenderer {
         ctx.strokePath()
     }
 
-    private static func drawText(for component: Component, at origin: CGPoint) {
+    /// Bounds of a component's body and its name, and its value if `showsValue`.
+    static func bounds(of component: Component, withText showsValue: Bool) -> CGRect {
+        textLayout(for: component, showsValue: showsValue).reduce(bounds(of: component)) { rect, text in
+            rect.union(CGRect(origin: text.1, size: text.0.size()))
+        }
+    }
+
+    /// A component's name, and its value if `showsValue`, each with the point to draw it at.
+    private static func textLayout(for component: Component, showsValue: Bool = true) -> [(NSAttributedString, CGPoint)] {
+        Array(nameAndValueLayout(for: component).prefix(showsValue ? 2 : 1))
+    }
+
+    /// A component's name and value, each with the point to draw it at; none for grounds and net labels.
+    private static func nameAndValueLayout(for component: Component) -> [(NSAttributedString, CGPoint)] {
+        guard component.kind.hasValue else { return [] }
+        let origin = SchematicStyle.point(component.position)
         let name = NSAttributedString(string: component.name, attributes: [
             .font: SchematicStyle.nameFont, .foregroundColor: NSColor.secondaryLabelColor,
         ])
@@ -357,20 +421,18 @@ enum SymbolRenderer {
         if component.kind.isTransistor {
             // Beside the symbol, clear of the leads that run to its top and bottom pins.
             let x = bounds(of: component).maxX + 4
-            name.draw(at: CGPoint(x: x, y: origin.y - name.size().height))
-            value.draw(at: CGPoint(x: x, y: origin.y))
-            return
+            return [(name, CGPoint(x: x, y: origin.y - name.size().height)), (value, CGPoint(x: x, y: origin.y))]
         }
         let gap = bodyHalfHeight(component.kind) + 4
         if component.rotation.isMultiple(of: 2) {
             let nameSize = name.size(), valueSize = value.size()
-            name.draw(at: CGPoint(x: origin.x - nameSize.width / 2, y: origin.y - gap - nameSize.height))
-            value.draw(at: CGPoint(x: origin.x - valueSize.width / 2, y: origin.y + gap))
-        } else {
-            let x = origin.x + gap + 2
-            name.draw(at: CGPoint(x: x, y: origin.y - name.size().height))
-            value.draw(at: CGPoint(x: x, y: origin.y))
+            return [
+                (name, CGPoint(x: origin.x - nameSize.width / 2, y: origin.y - gap - nameSize.height)),
+                (value, CGPoint(x: origin.x - valueSize.width / 2, y: origin.y + gap)),
+            ]
         }
+        let x = origin.x + gap + 2
+        return [(name, CGPoint(x: x, y: origin.y - name.size().height)), (value, CGPoint(x: x, y: origin.y))]
     }
 
     // MARK: - Net labels

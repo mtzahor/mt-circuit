@@ -208,6 +208,22 @@ final class EditorModel: ObservableObject {
         runSimulation()
     }
 
+    // MARK: - Dive In
+
+    /// Opens the Dive In window on a topic. Set by the window's content view, which can open windows.
+    var openDiveIn: ((DiveInTopic) -> Void)?
+
+    /// The topic about the selected part, when the selection is a single part.
+    var diveInTopic: DiveInTopic? {
+        guard selection.count == 1, let component = selectedComponents.first else { return nil }
+        return DiveIn.topic(for: component.kind)
+    }
+
+    func diveIn() {
+        guard let topic = diveInTopic else { return }
+        openDiveIn?(topic)
+    }
+
     // MARK: - Clipboard
 
     func copySelection() {

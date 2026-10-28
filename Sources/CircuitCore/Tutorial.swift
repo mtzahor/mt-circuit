@@ -845,8 +845,8 @@ public enum Tutorial {
 
 // MARK: - Layout
 
-/// Builds lesson circuits on explicit grid coordinates.
-private struct Bench {
+/// Builds circuits on explicit grid coordinates, for the tutorial and Dive In.
+struct Bench {
     typealias Part = (kind: ComponentKind, name: String, value: Double)
 
     var circuit = Circuit()
@@ -866,10 +866,11 @@ private struct Bench {
         circuit.components.append(Component(kind: kind, name: name, position: left + GridPoint(2, 0), rotation: 0, value: value))
     }
 
-    /// An N-type transistor at `position`: collector or drain at + (1, −2), base or gate at
-    /// + (−2, 0), emitter or source at + (1, 2).
-    mutating func transistor(_ kind: ComponentKind, _ name: String, at position: GridPoint) {
-        circuit.components.append(Component(kind: kind, name: name, position: position, rotation: 0))
+    /// A transistor at `position` with its base or gate at + (−2, 0). An N-type device has its
+    /// collector or drain at + (1, −2) and its emitter or source at + (1, 2); a P-type one is upside down.
+    mutating func transistor(_ kind: ComponentKind, _ name: String, _ polarity: TransistorParameters.Polarity = .n, at position: GridPoint) {
+        circuit.components.append(Component(
+            kind: kind, name: name, position: position, rotation: 0, transistor: TransistorParameters(polarity: polarity)))
     }
 
     /// An op-amp pointing right with its + input at `plus`, − input two rows up, and output at plus + (4, −1).
