@@ -13,6 +13,8 @@ public struct NetlistElement: Sendable, Hashable {
     public var emissionCoefficient: Double
     /// A transistor's polarity and parameters (the defaults for other elements).
     public var transistor: TransistorParameters
+    /// A logic gate's function and delay (the defaults for other elements).
+    public var logic: LogicParameters
 
     /// A diode's model; its saturation current is `value`.
     public var diode: DiodeModel {
@@ -33,23 +35,31 @@ public struct NetlistElement: Sendable, Hashable {
             transconductance: transistor.transconductance, channelLengthModulation: transistor.channelLengthModulation)
     }
 
-    /// The model of a diode or transistor, whose currents are nonlinear in its voltages.
+    /// A logic gate's model; its supply voltage is `value`.
+    public var gate: LogicGateModel {
+        LogicGateModel(function: logic.function, supply: value, delay: logic.delay)
+    }
+
+    /// The model of a diode, transistor, or logic gate, whose currents are nonlinear in its
+    /// voltages. A logic gate's is its DC model; in a transient analysis, its output also depends
+    /// on its previous state (see `Simulator.nonlinearModels`).
     var nonlinearModel: (any NonlinearModel)? {
         switch kind {
         case .diode: diode
         case .bjt: bjt
         case .mosfet: mosfet
+        case .logicGate: gate.step(hold: 0, drive: 1)
         default: nil
         }
     }
 
     /// Where each of the element's currents flows inside it, from one node to another. The first
-    /// is its main current: through a two-terminal element, out of an op-amp's output to ground,
-    /// collector to emitter (Ic) of a BJT, or drain to source (Id) of a MOSFET. A BJT's second
-    /// current is its base current, base to emitter.
+    /// is its main current: through a two-terminal element, out of an op-amp's or logic gate's
+    /// output to ground, collector to emitter (Ic) of a BJT, or drain to source (Id) of a MOSFET.
+    /// A BJT's second current is its base current, base to emitter.
     public var branchNodes: [(from: Int, to: Int)] {
         switch kind {
-        case .opAmp: [(nodes[2], 0)]
+        case .opAmp, .logicGate: [(outputNode, 0)]
         case .bjt: [(nodes[0], nodes[2]), (nodes[1], nodes[2])]
         case .mosfet: [(nodes[0], nodes[2])]
         default: [(nodeA, nodeB)]
@@ -66,7 +76,7 @@ public struct NetlistElement: Sendable, Hashable {
     }
 
     /// Number of branch currents the simulator solves for: one per voltage source, inductor,
-    /// capacitor, diode, op-amp, and MOSFET, two per BJT, none for resistors and current sources.
+    /// capacitor, diode, op-amp, MOSFET, and logic gate, two per BJT, none for resistors and current sources.
     var branchCount: Int {
         switch kind {
         case .resistor, .currentSource, .ground, .netLabel: 0
@@ -75,11 +85,13 @@ public struct NetlistElement: Sendable, Hashable {
     }
 
     /// Node pairs whose voltage differences control a nonlinear element's currents: a diode's
-    /// V(anode) − V(cathode), a BJT's V_BE and V_BC, a MOSFET's V_GS and V_DS.
+    /// V(anode) − V(cathode), a BJT's V_BE and V_BC, a MOSFET's V_GS and V_DS, and a logic gate's
+    /// output voltage and then input voltages, relative to ground.
     var controlNodes: [(Int, Int)] {
         switch kind {
         case .bjt: [(nodes[1], nodes[2]), (nodes[1], nodes[0])]
         case .mosfet: [(nodes[1], nodes[2]), (nodes[0], nodes[2])]
+        case .logicGate: ([outputNode] + inputNodes).map { ($0, 0) }
         default: [(nodeA, nodeB)]
         }
     }
@@ -88,8 +100,10 @@ public struct NetlistElement: Sendable, Hashable {
     public var nodeA: Int { nodes[0] }
     /// Node of pin 2: the "−" / "to" terminal, a diode's cathode, or an op-amp's inverting input.
     public var nodeB: Int { nodes[1] }
-    /// Node of an op-amp's output (pin 3). Only op-amps have one.
-    public var outputNode: Int { nodes[2] }
+    /// Node of an op-amp's or logic gate's output: its last pin.
+    public var outputNode: Int { nodes[nodes.count - 1] }
+    /// Nodes of a logic gate's inputs: every pin but the output.
+    public var inputNodes: [Int] { Array(nodes.dropLast()) }
 
     /// Whether every pin is on the same net, so the element cannot affect any node voltage.
     var isShorted: Bool { nodes.allSatisfy { $0 == nodes[0] } }
@@ -131,7 +145,7 @@ public struct Netlist: Sendable {
 
     public init(circuit: Circuit) throws {
         let elementKinds: Set<ComponentKind> = [
-            .resistor, .capacitor, .inductor, .diode, .bjt, .mosfet, .voltageSource, .currentSource, .opAmp,
+            .resistor, .capacitor, .inductor, .diode, .bjt, .mosfet, .voltageSource, .currentSource, .opAmp, .logicGate,
         ]
         let parts = circuit.components.filter { elementKinds.contains($0.kind) }
         guard !parts.isEmpty else { throw NetlistError.empty }
@@ -176,6 +190,14 @@ public struct Netlist: Sendable {
                 guard part.value.isFinite, part.value > 0 else {
                     throw NetlistError.invalidValue(component: part.name, reason: "open-loop gain must be greater than zero.")
                 }
+            case .logicGate:
+                guard part.value.isFinite, part.value > 0 else {
+                    throw NetlistError.invalidValue(component: part.name, reason: "supply voltage must be greater than zero.")
+                }
+                let delay = (part.logic ?? LogicParameters()).delay
+                guard delay.isFinite, delay >= 0 else {
+                    throw NetlistError.invalidValue(component: part.name, reason: "propagation delay must be positive, or 0 for none.")
+                }
             default:
                 guard part.value.isFinite else {
                     throw NetlistError.invalidValue(component: part.name, reason: "source value is not a number.")
@@ -189,6 +211,7 @@ public struct Netlist: Sendable {
         // Number the nodes: ground is 0, the rest in order of first appearance on element pins.
         var nodeForNet: [Int: Int] = [groundNet: 0]
         var names = ["0"]
+        var labeledNodes: Set<Int> = []
         var unnamedCount = 0
         func node(for point: GridPoint) -> Int {
             let net = connectivity.netAtPoint[point]!
@@ -197,6 +220,7 @@ public struct Netlist: Sendable {
             nodeForNet[net] = index
             if let label = connectivity.labelForNet[net] {
                 names.append(label)
+                labeledNodes.insert(index)
             } else {
                 unnamedCount += 1
                 names.append("N\(unnamedCount)")
@@ -213,7 +237,8 @@ public struct Netlist: Sendable {
                 componentID: part.id, name: part.name, kind: part.kind,
                 nodes: nodes, value: part.value, waveform: part.waveform,
                 emissionCoefficient: part.emissionCoefficient ?? 1,
-                transistor: part.transistor ?? TransistorParameters()))
+                transistor: part.transistor ?? TransistorParameters(),
+                logic: part.logic ?? LogicParameters()))
         }
 
         var warnings: [String] = []
@@ -227,8 +252,11 @@ public struct Netlist: Sendable {
         // A shorted element cannot affect any node voltage, and would make the DC equations singular.
         elements.removeAll { $0.isShorted }
         for element in elements {
+            // An op-amp's or logic gate's output may drive just a labeled net, to be observed.
+            let hasOutput = element.kind == .opAmp || element.kind == .logicGate
             for (pinIndex, node) in element.nodes.enumerated() where node != 0 && terminalsOnNode[node] == 1 {
-                warnings.append("\(element.kind.pinName(pinIndex)) of \(element.name) is not connected to anything.")
+                if hasOutput, node == element.outputNode, labeledNodes.contains(node) { continue }
+                warnings.append("\(element.kind.pinName(pinIndex, of: element.nodes.count)) of \(element.name) is not connected to anything.")
             }
         }
 

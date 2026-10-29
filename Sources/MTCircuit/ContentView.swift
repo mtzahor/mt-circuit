@@ -63,7 +63,7 @@ struct ContentView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .help("Tools: S select, W wire, R C L D Q M V I O G N place parts")
+            .help("Tools: S select, W wire, R C L D Q M V I O A G N place parts")
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Button { editor.rotate() } label: { Label("Rotate", systemImage: "rotate.right") }
@@ -148,7 +148,7 @@ private struct EmptyCircuitView: View {
                 }
                 .fixedSize()
                 Button("Dive In") { openWindow.diveIn() }
-                    .help("See what's inside each part, from the op-amp down to the pn junction")
+                    .help("See what's inside each part, from the op-amp and logic gates down to the pn junction")
             }
         }
         .padding(24)

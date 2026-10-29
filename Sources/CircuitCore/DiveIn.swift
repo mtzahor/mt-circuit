@@ -8,6 +8,7 @@ public struct DiveInTopic: Identifiable, Sendable {
     public enum Category: String, CaseIterable, Sendable {
         case parts = "Parts"
         case buildingBlocks = "Building Blocks"
+        case logic = "Logic"
     }
 
     public var id: String
@@ -61,6 +62,8 @@ public enum Illustration: String, Sendable {
     case bjt
     /// An n-channel MOSFET, with a gate voltage that opens its channel.
     case mosfet
+    /// A CMOS gate's transistors as switches, opened and closed by inputs the reader sets.
+    case cmosSwitches
 }
 
 /// A titled group of parts in a schematic figure, such as the input stage of an op-amp.
@@ -82,8 +85,9 @@ public enum DiveIn {
     public static let urlScheme = "divein"
 
     public static let topics: [DiveInTopic] = [
-        resistor, capacitor, inductor, diode, bjt, mosfet, voltageSource, currentSource, opAmp,
+        resistor, capacitor, inductor, diode, bjt, mosfet, voltageSource, currentSource, opAmp, logicGate,
         differentialPair, currentMirror, pushPull,
+        cmosInverter, cmosNAND, cmosNOR, andOr, xorGate, srLatch,
     ]
 
     public static func topic(withID id: String) -> DiveInTopic? {
@@ -102,9 +106,27 @@ public enum DiveIn {
         case .voltageSource: "voltage-source"
         case .currentSource: "current-source"
         case .opAmp: "op-amp"
+        case .logicGate: "logic-gate"
         case .ground, .netLabel: nil
         }
         return id.flatMap(topic(withID:))
+    }
+
+    /// The topic about what is inside `component`: for a logic gate, its function's transistors.
+    public static func topic(for component: Component) -> DiveInTopic? {
+        guard component.kind == .logicGate, let function = component.logic?.function else { return topic(for: component.kind) }
+        return topic(withID: topicID(for: function))
+    }
+
+    /// The topic about the transistors inside a gate with `function`.
+    public static func topicID(for function: LogicFunction) -> String {
+        switch function {
+        case .not: "cmos-inverter"
+        case .nand: "cmos-nand"
+        case .nor: "cmos-nor"
+        case .and, .or: "and-or"
+        case .xor, .xnor: "xor-gate"
+        }
     }
 
     /// The topic a `divein:<id>` link leads to.
@@ -448,6 +470,56 @@ public enum DiveIn {
             circuit: DiveInCircuits.opAmpAmplifier, lesson: "inverting-amplifier")
     }
 
+    static var logicGate: DiveInTopic {
+        DiveInTopic(
+            id: "logic-gate", category: .parts, title: "Logic Gate",
+            headline: "Transistor switches that compute",
+            figure: .illustration(.cmosSwitches),
+            sections: [
+                DiveInSection("Ones and zeros", """
+                    A logic gate works with just two levels of voltage: near its supply, a **1** (high), and \
+                    near ground, a **0** (low). Anything above about 70 % of the supply counts as a 1, and \
+                    anything below 30 % as a 0. Each gate drives its output all the way to one level or the \
+                    other, so a signal that picked up some noise comes out clean again. That's why digital \
+                    signals can pass through billions of gates without degrading, where an analog one would drown.
+                    """),
+                DiveInSection("Pull-up and pull-down", """
+                    Inside a CMOS gate are two networks of [MOSFETs](divein:mosfet) used as switches. \
+                    P-channel transistors connect the output to the supply: the **pull-up** network. \
+                    N-channel ones connect it to ground: the **pull-down** network. An n-channel transistor \
+                    conducts when its gate is high, a p-channel one when its gate is low.
+
+                    The two networks are complementary: for every combination of inputs, exactly one of them \
+                    conducts. In a [NAND gate](divein:cmos-nand), the pull-down transistors are in series, so \
+                    the output falls only when both inputs are high. Set the inputs above and follow the path \
+                    that conducts.
+                    """),
+                DiveInSection("Every function", """
+                    A high input can only switch on an n-channel transistor, which pulls toward ground, so a \
+                    single CMOS stage always inverts: NOT, NAND, and NOR are the natural gates. [AND and \
+                    OR](divein:and-or) are a NAND or NOR followed by an inverter. And NAND alone is enough to \
+                    build any logic function at all: [XOR](divein:xor-gate) takes four of them, and two make \
+                    a [latch](divein:sr-latch) that remembers a bit.
+                    """),
+                DiveInSection("Propagation delay", """
+                    A gate's output drives the gates of the next transistors, which are small \
+                    [capacitors](divein:capacitor). Its transistors charge and discharge them through their \
+                    channels, and that takes time: the **propagation delay**, about 10 ns for a 74HC logic \
+                    chip and a few picoseconds inside a processor. Current flows only while the gate switches, \
+                    so a CMOS chip's power grows with its clock frequency.
+                    """),
+                DiveInSection("In MT Circuit", """
+                    A logic gate drives its output toward 0 V or its supply, 5 V by default, through 50 Ω. \
+                    Its supply is implicit: there are no power pins, and the levels are relative to ground. \
+                    Inputs switch at half the supply and draw no current. The output follows its inputs one \
+                    propagation delay later, 10 ns by default. To see the transistors inside each gate, dive \
+                    deeper below.
+                    """),
+            ],
+            deeper: ["cmos-inverter", "cmos-nand", "cmos-nor", "and-or", "xor-gate", "sr-latch", "mosfet"],
+            lesson: "logic-gates")
+    }
+
     // MARK: Building blocks
 
     static var differentialPair: DiveInTopic {
@@ -536,6 +608,216 @@ public enum DiveIn {
                     """),
             ],
             deeper: ["bjt", "diode"], circuit: circuit)
+    }
+
+    // MARK: Logic
+
+    static var cmosInverter: DiveInTopic {
+        let circuit = Examples.cmosInverter.circuit
+        return DiveInTopic(
+            id: "cmos-inverter", category: .logic, title: "CMOS Inverter",
+            headline: "Inside a NOT gate: one transistor pulls up, the other pulls down",
+            figure: .schematic(circuit, regions: [
+                SchematicRegion("Pull-up", parts: ["M2"]),
+                SchematicRegion("Pull-down", parts: ["M1"]),
+            ]),
+            sections: [
+                DiveInSection("Complementary switches", """
+                    A NOT gate is two [MOSFETs](divein:mosfet) with their gates joined: M2, a p-channel \
+                    transistor, from the supply to the output, and M1, an n-channel one, from the output to \
+                    ground. "Complementary" is the C in CMOS.
+                    """),
+                DiveInSection("Pull-up", region: 0, """
+                    A low input puts M2's gate 5 V below its source, far past its threshold, so M2 conducts \
+                    and connects the output to the supply, while M1 is off. The output is high.
+                    """),
+                DiveInSection("Pull-down", region: 1, """
+                    A high input turns M1 on and M2 off: the output connects to ground and is low. In either \
+                    state one transistor is off, so no current flows from the supply to ground. A CMOS gate \
+                    at rest uses almost no power.
+                    """),
+                DiveInSection("Gain in the middle", """
+                    Only near half the supply are both transistors partly on. There, a small change at the \
+                    input swings the output a long way: the inverter is an amplifier with a high gain. That \
+                    gain is what snaps a sloppy input back to clean levels.
+
+                    Open the circuit: the input ramps slowly up and down, and the output switches abruptly as \
+                    the input passes 2.5 V. Plot I(V2) to see current flow from the supply only while it switches.
+                    """),
+            ],
+            deeper: ["mosfet"], circuit: circuit, lesson: "cmos-gates")
+    }
+
+    static var cmosNAND: DiveInTopic {
+        let circuit = DiveInCircuits.cmosGate(.nand)
+        return DiveInTopic(
+            id: "cmos-nand", category: .logic, title: "NAND Gate",
+            headline: "Two switches in series below, two in parallel above",
+            figure: .schematic(DiveInCircuits.cmosGate(.nand, sources: false), regions: [
+                SchematicRegion("Pull-up", parts: ["M2", "M4"]),
+                SchematicRegion("Pull-down", parts: ["M1", "M3"]),
+            ]),
+            sections: [
+                DiveInSection(nil, """
+                    A NAND gate's output is 0 only when both of its inputs are 1:
+
+                    > Y = NOT (A AND B)
+
+                    It takes four [MOSFETs](divein:mosfet), two more than an [inverter](divein:cmos-inverter).
+                    """),
+                DiveInSection("Pull-down in series", region: 1, """
+                    M1 and M3, the n-channel transistors, are in series between the output and ground. \
+                    Current can only get through if both are on, so the output is pulled low only when A and \
+                    B are both high.
+                    """),
+                DiveInSection("Pull-up in parallel", region: 0, """
+                    M2 and M4, the p-channel transistors, are in parallel between the supply and the output. \
+                    Either one connects it, so the output is high as soon as A or B is low: exactly when the \
+                    pull-down is open.
+                    """),
+                DiveInSection("Try it", """
+                    Open the circuit: A and B count through all four combinations, 00, 01, 10, and 11, a \
+                    millisecond each, and V(y) falls only during the last. NAND is the workhorse of \
+                    logic: any function can be built from NAND gates alone.
+                    """),
+            ],
+            deeper: ["cmos-inverter", "mosfet"], circuit: circuit, lesson: "cmos-gates")
+    }
+
+    static var cmosNOR: DiveInTopic {
+        let circuit = DiveInCircuits.cmosGate(.nor)
+        return DiveInTopic(
+            id: "cmos-nor", category: .logic, title: "NOR Gate",
+            headline: "Two switches in parallel below, two in series above",
+            figure: .schematic(DiveInCircuits.cmosGate(.nor, sources: false), regions: [
+                SchematicRegion("Pull-up", parts: ["M2", "M4"]),
+                SchematicRegion("Pull-down", parts: ["M1", "M3"]),
+            ]),
+            sections: [
+                DiveInSection(nil, """
+                    A NOR gate's output is 1 only when both of its inputs are 0:
+
+                    > Y = NOT (A OR B)
+
+                    It is the mirror image of the [NAND gate](divein:cmos-nand): its networks swap series \
+                    for parallel.
+                    """),
+                DiveInSection("Pull-down in parallel", region: 1, """
+                    Either input high turns on M1 or M3, and either one pulls the output to ground.
+                    """),
+                DiveInSection("Pull-up in series", region: 0, """
+                    The output connects to the supply only through both M2 and M4, so only when A and B \
+                    are both low.
+                    """),
+                DiveInSection("Why designers prefer NAND", """
+                    In silicon, holes move two to three times slower than electrons, so a p-channel \
+                    transistor conducts less than an n-channel one of the same size. A NOR gate puts its \
+                    slow p-channel transistors in series, which makes it slower still, unless they are made \
+                    larger. NAND gates put the fast n-channel ones in series instead, so chips are built \
+                    mostly from NANDs.
+                    """),
+            ],
+            deeper: ["cmos-inverter", "mosfet"], circuit: circuit, lesson: "sr-latch")
+    }
+
+    static var andOr: DiveInTopic {
+        let circuit = DiveInCircuits.cmosAND
+        return DiveInTopic(
+            id: "and-or", category: .logic, title: "AND and OR Gates",
+            headline: "A NAND or a NOR, then an inverter",
+            figure: .schematic(DiveInCircuits.cmosAND(sources: false), regions: [
+                SchematicRegion("NAND", parts: ["M1", "M2", "M3", "M4"]),
+                SchematicRegion("Inverter", parts: ["M5", "M6"]),
+            ]),
+            sections: [
+                DiveInSection("Why not one stage?", """
+                    An AND gate's output should rise when its inputs rise. But a rising input can only \
+                    switch on an n-channel transistor, and n-channel transistors belong in the pull-down \
+                    network: they pull the output toward ground. Every single CMOS stage inverts.
+                    """),
+                DiveInSection("NAND, then NOT", region: 0, """
+                    So an AND gate is a [NAND gate](divein:cmos-nand) whose output feeds an \
+                    [inverter](divein:cmos-inverter), six transistors in all. An OR gate is a \
+                    [NOR gate](divein:cmos-nor) and an inverter in the same way.
+                    """),
+                DiveInSection("The cost", region: 1, """
+                    The inverter adds two transistors and a second propagation delay. Designers often keep \
+                    the logic inverted instead: a NAND followed by a NAND computes the same as an AND \
+                    followed by an OR, with fewer transistors.
+
+                    Open the circuit: V(n) is the NAND's output and V(y) the AND's.
+                    """),
+            ],
+            deeper: ["cmos-nand", "cmos-nor", "cmos-inverter"], circuit: circuit, lesson: "logic-gates")
+    }
+
+    static var xorGate: DiveInTopic {
+        let circuit = DiveInCircuits.xorFromNAND
+        return DiveInTopic(
+            id: "xor-gate", category: .logic, title: "XOR Gate",
+            headline: "Four NAND gates that tell whether two bits differ",
+            figure: .schematic(circuit, regions: [
+                SchematicRegion("Shared NAND", parts: ["U1"]),
+            ]),
+            sections: [
+                DiveInSection(nil, """
+                    XOR, "exclusive or", is 1 when its inputs differ: one or the other, but not both. XNOR \
+                    is its inverse, 1 when they are equal.
+                    """),
+                DiveInSection("Built from NANDs", region: 0, """
+                    U1 computes n = NAND(A, B), which is 0 only when both inputs are 1. U2 = NAND(A, n) \
+                    is then 0 only when A is 1 and B is 0, and U3 = NAND(n, B) only when B is 1 and A is 0. \
+                    U4, a NAND of those two, is 1 when either of them is 0: exactly when the inputs differ.
+
+                    > Y = A XOR B = NAND(NAND(A, n), NAND(n, B))
+
+                    Built from [NAND gates](divein:cmos-nand), that's sixteen transistors; a chip designer's \
+                    XOR cell manages with about a dozen.
+                    """),
+                DiveInSection("Adding and comparing", """
+                    XOR adds two bits, leaving out the carry: 0 + 1 = 1, but 1 + 1 = 0, carry 1. Every adder \
+                    in a processor is built around XOR gates, and so are circuits that compare numbers bit by \
+                    bit, compute parity, and encrypt data.
+
+                    Open the circuit: A and B count through 00, 01, 10, and 11, and V(y) is high in the middle two.
+                    """),
+            ],
+            deeper: ["cmos-nand"], circuit: circuit, lesson: "nand-universal")
+    }
+
+    static var srLatch: DiveInTopic {
+        let circuit = Examples.srLatch.circuit
+        return DiveInTopic(
+            id: "sr-latch", category: .logic, title: "SR Latch",
+            headline: "Two gates that remember one bit",
+            figure: .schematic(circuit, regions: [
+                SchematicRegion("Feedback", parts: ["U1", "U2"]),
+            ]),
+            sections: [
+                DiveInSection("Feedback", region: 0, """
+                    Each [NOR gate](divein:cmos-nor)'s output feeds one input of the other. With both S and R \
+                    at 0, each gate simply inverts the other's output, and that loop has two stable states: \
+                    q = 1 with qbar = 0, or q = 0 with qbar = 1. Whichever it is in, it stays. The latch \
+                    holds one bit.
+                    """),
+                DiveInSection("Set and reset", """
+                    Raising S forces qbar to 0, and then q to 1: the latch is **set**. Raising R forces q to 0: \
+                    it is **reset**. When the input falls again, the feedback keeps the new state.
+
+                    Raising both at once is forbidden: both outputs fall to 0, and if both inputs then fall \
+                    together, the latch is left to race toward one state or the other.
+                    """),
+                DiveInSection("From latches to memory", """
+                    A computer's fastest memory, the SRAM in its caches, stores each bit in two \
+                    [inverters](divein:cmos-inverter) feeding each other, the same loop with six transistors. \
+                    Two latches in a row make a flip-flop, which changes state only on a clock edge: the \
+                    registers of every processor are built from them.
+
+                    Open the circuit: R resets the latch at the start, S sets it at 1 ms, and R resets it \
+                    again at 3 ms. Between the pulses, V(q) holds.
+                    """),
+            ],
+            deeper: ["cmos-nor"], circuit: circuit, lesson: "sr-latch")
     }
 }
 
@@ -760,6 +1042,51 @@ enum DiveInCircuits {
         b.wire(GridPoint(10, 16), GridPoint(22, 16))
         b.ground(at: GridPoint(14, 16))
         b.circuit.simulation.analysis = .operatingPoint
+        return b.circuit
+    }
+
+    /// A transistor-level NAND or NOR gate (see `Bench.cmosNAND` and `Bench.cmosNOR`). With
+    /// `sources`, a 5 V supply, and inputs A and B that count through every combination in 4 ms.
+    static func cmosGate(_ function: LogicFunction, sources: Bool = true) -> Circuit {
+        var b = Bench()
+        if function == .nand { b.cmosNAND() } else { b.cmosNOR() }
+        guard sources else { return b.circuit }
+        b.supply(at: GridPoint(42, 2), from: function == .nand ? GridPoint(33, 2) : GridPoint(19, 2))
+        b.logicInput("VA", "a", top: GridPoint(2, 8), bit: 0, of: 2)
+        b.logicInput("VB", "b", top: GridPoint(2, 16), bit: 1, of: 2)
+        b.countThrough(inputs: 2)
+        return b.circuit
+    }
+
+    /// A transistor-level AND gate: the NAND of `Bench.cmosNAND`, with output n, and an inverter
+    /// (M6 above M5) from n to y.
+    static func cmosAND(sources: Bool) -> Circuit {
+        var b = Bench()
+        b.cmosNAND(output: "n", outputEnd: 44)
+        b.transistor(.mosfet, "M6", .p, at: GridPoint(46, 6))
+        b.transistor(.mosfet, "M5", at: GridPoint(46, 14))
+        b.wire(GridPoint(33, 2), GridPoint(47, 2), GridPoint(47, 4))
+        b.wire(GridPoint(44, 6), GridPoint(44, 14))
+        b.wire(GridPoint(47, 8), GridPoint(47, 12))
+        b.wire(GridPoint(47, 10), GridPoint(51, 10))
+        b.label("y", at: GridPoint(50, 10))
+        b.wire(GridPoint(47, 16), GridPoint(47, 18))
+        b.ground(at: GridPoint(47, 18))
+        guard sources else { return b.circuit }
+        b.supply(at: GridPoint(56, 2), from: GridPoint(47, 2))
+        b.logicInput("VA", "a", top: GridPoint(2, 8), bit: 0, of: 2)
+        b.logicInput("VB", "b", top: GridPoint(2, 16), bit: 1, of: 2)
+        b.countThrough(inputs: 2)
+        return b.circuit
+    }
+
+    static var cmosAND: Circuit { cmosAND(sources: true) }
+
+    /// XOR from four NAND gates: n = NAND(a, b), then y = NAND(NAND(a, n), NAND(n, b)).
+    static var xorFromNAND: Circuit {
+        var b = Bench()
+        b.xorFromNAND()
+        b.countThrough(inputs: 2)
         return b.circuit
     }
 }

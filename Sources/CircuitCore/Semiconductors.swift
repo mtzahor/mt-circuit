@@ -243,8 +243,56 @@ extension MOSFETModel: NonlinearModel {
         return ([s * id], [[gm, gds]])
     }
 
-    /// The square law cannot overshoot by decades the way an exponential does, so steps are not limited.
+    /// Limits a Newton step as SPICE's level 1 MOSFET does: the gate voltage relative to the
+    /// source (or to the drain, once they swap roles) with `fetlim`, then V_DS with `limvds`. A
+    /// saturated transistor is a current source, so a node it drives that nothing else holds
+    /// jumps to an enormous voltage on the first iteration; without limiting, the next
+    /// transistor's tangent there would be useless.
     func limitStep(_ new: [Double], from old: [Double]) -> [Double] {
-        new
+        let s = polarity.sign
+        var (vgs, vds) = (s * new[0], s * new[1])
+        let (oldGS, oldDS) = (s * old[0], s * old[1])
+        // Voltages are recombined only when a limit applies: Newton iteration has converged only
+        // once no step is limited, and recombining exact values could still round them.
+        if oldDS >= 0 {
+            let limited = Self.limitGate(vgs, from: oldGS, threshold: threshold)
+            if limited != vgs { (vgs, vds) = (limited, vds + (limited - vgs)) }
+            vds = Self.limitDrain(vds, from: oldDS)
+        } else {
+            let vgd = vgs - vds
+            let limited = Self.limitGate(vgd, from: oldGS - oldDS, threshold: threshold)
+            var drain = limited == vgd ? vds : vgs - limited
+            drain = -Self.limitDrain(-drain, from: -oldDS)
+            if limited != vgd || drain != vds { (vgs, vds) = (limited + drain, drain) }
+        }
+        return [s * vgs, s * vds]
+    }
+
+    /// SPICE's `fetlim`: keeps a gate voltage from crossing far past the threshold in one step,
+    /// and from moving more than about twice its distance from the threshold.
+    static func limitGate(_ new: Double, from old: Double, threshold: Double) -> Double {
+        let high = abs(2 * (old - threshold)) + 2, low = abs(old - threshold) + 1
+        let fullyOn = threshold + 3.5
+        let change = new - old
+        if old >= threshold {
+            if old >= fullyOn {
+                if change <= 0 {
+                    return new >= fullyOn ? (-change > low ? old - low : new) : max(new, threshold + 2)
+                }
+                return change >= high ? old + high : new
+            }
+            return change <= 0 ? max(new, threshold - 0.5) : min(new, threshold + 4)
+        }
+        if change <= 0 { return -change > high ? old - high : new }
+        return new <= threshold + 0.5 ? (change > low ? old + low : new) : threshold + 0.5
+    }
+
+    /// SPICE's `limvds`: keeps V_DS from growing more than about three times over in one step.
+    static func limitDrain(_ new: Double, from old: Double) -> Double {
+        if old >= 3.5 {
+            if new > old { return min(new, 3 * old + 2) }
+            return new < 3.5 ? max(new, 2) : new
+        }
+        return new > old ? min(new, 4) : max(new, -0.5)
     }
 }

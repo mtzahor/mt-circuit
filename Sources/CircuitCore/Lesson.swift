@@ -117,7 +117,7 @@ public enum Requirement: Sendable, Hashable {
 public struct Goal: Sendable {
     public var title: String
     /// The analysis the goal is measured with, whatever the circuit's own settings; nil for a
-    /// goal about the schematic itself.
+    /// goal about the schematic itself, or one that runs its own analyses, like a truth table.
     public var analysis: SimulationSettings?
     /// Measures the goal on the circuit and the result of `analysis` (nil when `analysis` is).
     let check: @Sendable (Circuit, SimulationResult?) -> GoalStatus
@@ -158,6 +158,26 @@ public struct Goal: Sendable {
             }
             if Self.equal(part.value, value) { return .met("") }
             return .notMet("Now: \(SIFormat.string(part.value, unit: unit, significantDigits: 4))")
+        }
+    }
+
+    /// There is no part of `kind`: "Use MOSFETs, not logic gates".
+    public static func avoids(_ kind: ComponentKind, _ title: String) -> Goal {
+        Goal(title: title, analysis: nil) { circuit, _ in
+            guard let part = circuit.components.first(where: { $0.kind == kind }) else { return .met("") }
+            return .notMet("\(part.name) is a \(kind.displayName.lowercased()).")
+        }
+    }
+
+    /// There is at least one logic gate, and every one computes `function`: "Use only NAND gates".
+    public static func onlyGates(_ function: LogicFunction) -> Goal {
+        Goal(title: "Use only \(function.displayName) gates", analysis: nil) { circuit, _ in
+            let gates = circuit.components.filter { $0.kind == .logicGate }
+            guard !gates.isEmpty else { return .notMet("There are none yet.") }
+            if let odd = gates.first(where: { $0.logic?.function != function }) {
+                return .notMet("\(odd.name) is \((odd.logic ?? LogicParameters()).function.displayName).")
+            }
+            return .met("")
         }
     }
 
@@ -254,6 +274,69 @@ public struct Goal: Sendable {
             let voltages = transient.nodeVoltages[try result.node(net)]
             let window = zip(transient.time, voltages).filter { $0.0 >= start }.map(\.1)
             return (window.max() ?? 0) - (window.min() ?? 0)
+        }
+    }
+
+    /// The frequency at which the net labeled `net` oscillates from `start` to the end of a
+    /// transient analysis from rest: the average spacing of its rising crossings of the middle of its swing.
+    public static func frequency(_ net: String, after start: Double, _ requirement: Requirement, stopTime: Double) -> Goal {
+        measuring("Frequency of V(\(net))", unit: "Hz", requirement, analysis: .transient(stopTime: stopTime)) { _, result in
+            let transient = try result.transient()
+            let samples = zip(transient.time, transient.nodeVoltages[try result.node(net)]).filter { $0.0 >= start }
+            let voltages = samples.map(\.1)
+            let low = voltages.min() ?? 0, high = voltages.max() ?? 0
+            let middle = (low + high) / 2
+            var crossings: [Double] = []
+            for (before, after) in zip(samples, samples.dropFirst()) where before.1 < middle && after.1 >= middle {
+                crossings.append(before.0 + (after.0 - before.0) * (middle - before.1) / (after.1 - before.1))
+            }
+            guard high - low > 1e-3, crossings.count >= 2 else {
+                throw Unmeasurable.absent("V(\(net)) doesn't oscillate.")
+            }
+            return Double(crossings.count - 1) / (crossings.last! - crossings.first!)
+        }
+    }
+
+    // MARK: Logic
+
+    /// The net labeled `output` follows `expected` for every combination of `inputs`. Each input
+    /// is the voltage source named `source`, set to 0 V or `high` in a DC analysis per combination,
+    /// whatever its waveform. An output at or above 70 % of `high` reads as 1, and at or below 30 % as 0.
+    public static func truthTable(
+        _ output: String, inputs: [(name: String, source: String)], _ title: String, high: Double = 5,
+        _ expected: @escaping @Sendable ([Bool]) -> Bool
+    ) -> Goal {
+        Goal(title: title, analysis: nil) { circuit, _ in
+            Self.status {
+                let reader = LogicGateModel(function: .not, supply: high)
+                var outputs: [Bool?] = []
+                for combination in 0..<(1 << inputs.count) {
+                    let bits = inputs.indices.map { combination >> (inputs.count - 1 - $0) & 1 == 1 }
+                    var copy = circuit
+                    copy.simulation = .dc
+                    for (input, bit) in zip(inputs, bits) {
+                        guard let index = copy.components.firstIndex(where: { $0.name == input.source && $0.kind == .voltageSource }) else {
+                            throw Unmeasurable.missing("There is no voltage source named \(input.source) for input \(input.name).")
+                        }
+                        copy.components[index].value = bit ? high : 0
+                        copy.components[index].waveform = SourceWaveform()
+                    }
+                    let result = try Simulator.run(copy)
+                    let voltage = try result.operatingPoint().nodeVoltages[result.node(output)]
+                    let value = reader.logicValue(voltage)
+                    if value != expected(bits) {
+                        let assignment = zip(inputs, bits).map { "\($0.name) = \($1 ? 1 : 0)" }.joined(separator: ", ")
+                        let reading = value.map { $0 ? "1" : "0" } ?? "neither 0 nor 1"
+                        return .notMet("With \(assignment): V(\(output)) = \(SIFormat.string(voltage, unit: "V", significantDigits: 3)), "
+                            + "which is \(reading).")
+                    }
+                    outputs.append(value)
+                }
+                let column = outputs.map { $0 == true ? "1" : "0" }.joined(separator: " ")
+                let names = inputs.map(\.name).joined(separator: " ")
+                let first = String(repeating: "0", count: inputs.count), last = String(repeating: "1", count: inputs.count)
+                return .met("Now: \(column) for \(names) = \(first) to \(last)")
+            }
         }
     }
 

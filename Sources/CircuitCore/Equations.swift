@@ -66,12 +66,13 @@ struct SignedText {
 // MARK: - Circuit equations
 
 /// The equations the simulator solves, written out to read: Kirchhoff's current law at every
-/// node, the law of every voltage source, inductor, capacitor, diode, transistor current, and
-/// op-amp, and the resulting Modified Nodal Analysis system A·x = b.
+/// node, the law of every voltage source, inductor, capacitor, diode, transistor current, op-amp,
+/// and logic gate, and the resulting Modified Nodal Analysis system A·x = b.
 ///
 /// Rows and unknowns are in the simulator's order (node voltages, then branch currents), and the
-/// matrix has exactly the simulator's coefficients, except for the tiny `gmin` conductances. Diodes
-/// and transistors are shown by their tangents, whose slopes change from one Newton iteration to the next.
+/// matrix has exactly the simulator's coefficients, except for the tiny `gmin` conductances. Diodes,
+/// transistors, and logic gates are shown by their tangents, whose slopes change from one Newton
+/// iteration to the next.
 public struct CircuitEquations: Sendable {
     public enum Notation: String, CaseIterable, Sendable {
         /// Component names stand for their values: "(V(in) − V(out))/R1".
@@ -90,14 +91,14 @@ public struct CircuitEquations: Sendable {
     public struct Row: Identifiable, Sendable {
         /// Index of the row in the matrix.
         public var id: Int
-        /// "Node out", "Capacitor C1", "Op-Amp U1", or "NPN Q1 · collector".
+        /// "Node out", "Capacitor C1", "Op-Amp U1", "NPN Q1 · collector", or "NAND Gate U2".
         public var label: String
         /// The node whose currents the row balances; nil for an element's row.
         public var node: Int?
         /// Kirchhoff's current law at the node, or the element's law.
         public var law: MathText
         /// The law in the form actually solved: discretized in time for a transient step, or
-        /// the tangent of a diode or transistor current for a Newton iteration.
+        /// the tangent of a diode, transistor, or logic gate current for a Newton iteration.
         public var solvedForm: MathText?
         /// A short remark, such as "open circuit at DC" or a source's waveform.
         public var note: String?
@@ -113,7 +114,8 @@ public struct CircuitEquations: Sendable {
     public var rhs: [MathText]
     /// Conventions and simplifications to know when reading the equations.
     public var notes: [String]
-    /// Value of every matrix entry, leaving out the slopes of diodes and transistors, which change while solving.
+    /// Value of every matrix entry, leaving out the slopes of diodes, transistors, and logic gates,
+    /// which the simulator adds while solving.
     var coefficients: [[Coefficient]]
 
     public var size: Int { unknowns.count }
@@ -219,12 +221,13 @@ private struct EquationBuilder {
         MathText(element.currentNames[branch], style: style)
     }
 
-    /// "Capacitor C1", "NPN Q1 · collector", "PMOS M2": the label of an element's row.
+    /// "Capacitor C1", "NPN Q1 · collector", "PMOS M2", "NAND Gate U1": the label of an element's row.
     func label(_ element: NetlistElement, branch: Int) -> String {
         let n = element.transistor.polarity == .n
         switch element.kind {
         case .bjt: return "\(n ? "NPN" : "PNP") \(element.name) · \(branch == 0 ? "collector" : "base")"
         case .mosfet: return "\(n ? "NMOS" : "PMOS") \(element.name)"
+        case .logicGate: return "\(element.logic.function.displayName) Gate \(element.name)"
         default: return "\(element.kind.displayName) \(element.name)"
         }
     }
@@ -270,6 +273,14 @@ private struct EquationBuilder {
     /// A symbol with the element's name as subscript, such as G with subscript D1, or I with subscript S,D1.
     func subscripted(_ symbol: String, _ element: NetlistElement, prefix: String = "") -> MathText {
         MathText(symbol) + MathText(prefix + element.name, style: .lowered)
+    }
+
+    /// A logic gate's output resistance, R_out or its value.
+    var outputResistance: MathText {
+        switch notation {
+        case .symbols: "R" + MathText("out", style: .lowered)
+        case .values: Self.quantity(LogicGateModel.outputResistance, unit: "Ω")
+        }
     }
 
     /// The thermal voltage, Vt or its value.
@@ -409,17 +420,17 @@ private struct EquationBuilder {
         return SignedText.sum(terms) + " = 0"
     }
 
-    /// The law of a voltage source, inductor, capacitor, diode, op-amp, or transistor current
-    /// (`branch` 1 is a BJT's base current), and the form solved: discretized in time in transient
-    /// analysis, or the tangent of a nonlinear current.
+    /// The law of a voltage source, inductor, capacitor, diode, op-amp, transistor current
+    /// (`branch` 1 is a BJT's base current), or logic gate, and the form solved: discretized in time
+    /// in transient analysis, or the tangent of a nonlinear current.
     func elementLaw(_ element: NetlistElement, branch: Int) -> (law: MathText, solved: MathText?, note: String?) {
         switch (element.kind, domain) {
-        case (.diode, .ac), (.bjt, .ac), (.mosfet, .ac):
+        case (.diode, .ac), (.bjt, .ac), (.mosfet, .ac), (.logicGate, .ac):
             let law = current(element, branch: branch) + " = " + SignedText.sum(tangentTerms(element, branch: branch) {
                 controlFactor(element, $0)
             })
             return (law, nil, "small-signal, at the DC operating point")
-        case (.diode, _), (.bjt, _), (.mosfet, _):
+        case (.diode, _), (.bjt, _), (.mosfet, _), (.logicGate, _):
             let (law, note) = nonlinearLaw(element, branch: branch)
             let current = current(element, branch: branch)
             let tangent = SignedText.sum(tangentTerms(element, branch: branch) { controlFactor(element, $0) }
@@ -463,8 +474,9 @@ private struct EquationBuilder {
 
     // MARK: Nonlinear elements
 
-    /// The right side of a diode's or transistor current's exact law, and a remark on it.
+    /// The right side of a diode's, transistor current's, or logic gate's exact law, and a remark on it.
     func nonlinearLaw(_ element: NetlistElement, branch: Int) -> (law: MathText, note: String?) {
+        if element.kind == .logicGate { return gateLaw(element) }
         // A P-type transistor's laws are the N-type ones with voltages and currents negated:
         // its controls read V_EB, V_CB, V_SG, V_SD, and its current takes a minus sign.
         let flip = element.kind != .diode && element.transistor.polarity == .p
@@ -517,13 +529,45 @@ private struct EquationBuilder {
         }
     }
 
+    /// A logic gate's output current, (V(out) − V_DD·f(inputs))/R_out. In a transient analysis,
+    /// f takes the inputs one propagation delay earlier.
+    func gateLaw(_ element: NetlistElement) -> (law: MathText, note: String?) {
+        let gate = element.gate
+        let delayed: Bool = if case .transient = domain { gate.delay > 0 } else { false }
+        let delay = deviceParameter("t", "pd", element, value: gate.delay, unit: "s")
+        let inputs = element.inputNodes.map { node -> MathText in
+            guard node != 0 else { return "0" }
+            return delayed ? voltage(node, style: .plain) + "(t − " + delay + ")" : voltage(node)
+        }
+        let arguments = inputs.dropFirst().reduce(inputs[0]) { $0 + ", " + $1 }
+        let supply = deviceParameter("V", "DD", element, value: gate.supply, unit: "V")
+        let target = supply + "·" + MathText(gate.function.displayName) + "(" + arguments + ")"
+        let output = element.outputNode == 0 ? MathText("0") : voltage(element.outputNode)
+        return ("(" + output + " − " + target + ")/" + outputResistance,
+                delayed ? "inputs one propagation delay earlier" : nil)
+    }
+
     /// The slopes of a nonlinear element's tangent as symbols: `slopes[i][j]` are the terms of
-    /// ∂I_i/∂V_j, in `NonlinearModel` order. A BJT's are its hybrid-π parameters.
+    /// ∂I_i/∂V_j, in `NonlinearModel` order. A BJT's are its hybrid-π parameters. A logic gate's
+    /// first slope is its output conductance G_out = 1/R_out, a constant; in an AC sweep its inputs'
+    /// slopes are delayed by its propagation delay.
     func slopeTerms(_ element: NetlistElement) -> [[[Term]]] {
         func g(_ name: String) -> Term {
             Term(factor: "g" + MathText("\(name),\(element.name)", style: .lowered))
         }
         switch element.kind {
+        case .logicGate:
+            let conductance: MathText = notation == .values
+                ? Self.number(1 / LogicGateModel.outputResistance)
+                : "G" + MathText("out", style: .lowered)
+            let lagged: Bool = if case .ac = domain { element.gate.delay > 0 } else { false }
+            let inputs = ["A", "B"].prefix(element.inputNodes.count).map { input -> [Term] in
+                let slope = g(input).factor
+                guard lagged else { return [Term(factor: slope)] }
+                let delay = deviceParameter("t", "pd", element, value: element.gate.delay, unit: "s")
+                return [Term(factor: "(" + slope + "·e^(−jω·" + delay + "))")]
+            }
+            return [[[Term(factor: conductance)]] + inputs]
         case .diode:
             // The tangent's slope is not a fixed number, so it stays a symbol even when values are shown.
             return [[[Term(factor: subscripted("G", element))]]]
@@ -576,7 +620,7 @@ private struct EquationBuilder {
                 let source = sourceTerm(element)
                 if let a { rhs[a].append(source.negated) }
                 if let b { rhs[b].append(source) }
-            case .diode, .bjt, .mosfet:
+            case .diode, .bjt, .mosfet, .logicGate:
                 // As `stampNonlinear`, with the tangent's slopes and its offset at the previous iterate.
                 let first = layout.branch[index]!
                 let slopes = slopeTerms(element)
@@ -752,8 +796,14 @@ private struct EquationBuilder {
             notes.append("Sources use their AC magnitude and phase.")
         }
         let kinds = Set(netlist.elements.map(\.kind))
-        let devices = [kinds.contains(.diode) ? "diodes" : nil, kinds.contains(.bjt) || kinds.contains(.mosfet) ? "transistors" : nil]
-            .compactMap { $0 }.joined(separator: " and ")
+        let deviceNames = [
+            kinds.contains(.diode) ? "diodes" : nil,
+            kinds.contains(.bjt) || kinds.contains(.mosfet) ? "transistors" : nil,
+            kinds.contains(.logicGate) ? "logic gates" : nil,
+        ].compactMap { $0 }
+        let devices = deviceNames.count > 2
+            ? deviceNames.dropLast().joined(separator: ", ") + ", and " + deviceNames.last!
+            : deviceNames.joined(separator: " and ")
         if !devices.isEmpty {
             let thermal = SIFormat.string(DiodeModel.thermalVoltage, unit: "V", significantDigits: 4)
             switch domain {
@@ -781,6 +831,20 @@ private struct EquationBuilder {
             notes.append("An op-amp's output is a voltage source to ground of A·(V+ − V−), where A is its open-loop gain. "
                 + "Its inputs draw no current, so I(U) — the current into its output — appears only in the output node's law. "
                 + "The model is linear: the output does not saturate.")
+        }
+        if kinds.contains(.logicGate) {
+            let resistance = SIFormat.string(LogicGateModel.outputResistance, unit: "Ω")
+            notes.append("A logic gate drives its output toward 0 V or its supply V_DD, relative to ground, through R_out = \(resistance): "
+                + "I(U), the current into its output, is (V(out) − V_DD·f)/R_out. Its inputs switch at V_DD/2 and draw no current. "
+                + "f is the gate's function on the input levels x = 1/(1 + exp(−(V − V_DD/2)/w)), with w = V_DD/100, in place "
+                + "of 1s and 0s: AND is x_A·x_B, OR is x_A + x_B − x_A·x_B, NOT is 1 − x_A, so the equations stay smooth. "
+                + "G_out = 1/R_out, and g_A and g_B are ∂I/∂V of the inputs.")
+            if case .transient = domain {
+                notes.append("A gate's output follows its inputs one propagation delay t_pd later: f takes the input voltages "
+                    + "at t − t_pd, interpolated between time points. When t_pd is shorter than the time step h, that time "
+                    + "falls inside the step, so f also depends on the present, unknown inputs, in proportion 1 − t_pd/h."
+                    + (settings.initialConditions == .zero ? " From rest, every gate's output starts at 0 V and stays there for t_pd." : ""))
+            }
         }
         notes.append("The simulator also connects \(SIFormat.string(Simulator.gmin, unit: "S")) (gmin) from every node to ground. It is left out here.")
         return notes

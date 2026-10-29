@@ -15,6 +15,7 @@ struct IllustrationView: View {
         case .diodeCurve: DiodeCurveIllustration()
         case .bjt: BJTIllustration()
         case .mosfet: MOSFETIllustration()
+        case .cmosSwitches: CMOSSwitchesIllustration()
         }
     }
 }
@@ -590,5 +591,139 @@ private struct MOSFETIllustration: View {
             let y = x < source.maxX || x > drain.minX ? body.minY + 6 : channel.midY + (noise(i, 10) - 0.5) * channel.height * 0.6
             context.electron(at: CGPoint(x: x, y: y), opacity: min(1, progress * 12, (1 - progress) * 12))
         }
+    }
+}
+
+// MARK: - CMOS switches
+
+/// A CMOS gate's transistors drawn as switches between the supply, the output, and ground, for
+/// inputs the reader sets. P-channel transistors (red) close when their input is 0, n-channel ones
+/// (blue) when it is 1.
+private struct CMOSSwitchesIllustration: View {
+    enum Gate: String, CaseIterable {
+        case not = "NOT", nand = "NAND", nor = "NOR"
+    }
+
+    /// A transistor as a switch from height `top` to `bottom` at horizontal offset `x` from the center.
+    private struct Switch {
+        var pChannel: Bool
+        var input: Int
+        var x: CGFloat
+        var top: CGFloat
+        var bottom: CGFloat
+
+        func isClosed(_ inputs: [Bool]) -> Bool { inputs[input] != pChannel }
+    }
+
+    // State is declared explicitly: the @State macro's plugin ships only with Xcode, not the Command Line Tools.
+    private let gate = State(initialValue: Gate.nand)
+    private let inputs = State(initialValue: [true, false])
+
+    private static let supplyY: CGFloat = 26, outputY: CGFloat = 128, groundY: CGFloat = 230
+
+    var body: some View {
+        let gate = self.gate.wrappedValue, inputs = self.inputs.wrappedValue
+        VStack(spacing: 12) {
+            HStack(spacing: 16) {
+                Picker("Gate", selection: self.gate.projectedValue) {
+                    ForEach(Gate.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                ForEach(0..<(gate == .not ? 1 : 2), id: \.self) { index in
+                    Button("\(["A", "B"][index]) = \(inputs[index] ? 1 : 0)") { self.inputs.wrappedValue[index].toggle() }
+                        .monospacedDigit()
+                        .help("Switch input \(["A", "B"][index])")
+                }
+            }
+            Canvas { context, size in Self.draw(&context, size, gate: gate, inputs: inputs) }
+                .frame(height: 256)
+            Text("p: p-channel MOSFET, on when its input is 0.   n: n-channel MOSFET, on when its input is 1.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Caption(Self.caption(gate, output: Self.pullUpConducts(gate, inputs)))
+        }
+    }
+
+    private static func switches(_ gate: Gate) -> [Switch] {
+        let middleUp = (supplyY + outputY) / 2, middleDown = (outputY + groundY) / 2
+        switch gate {
+        case .not:
+            return [Switch(pChannel: true, input: 0, x: 0, top: supplyY, bottom: outputY),
+                    Switch(pChannel: false, input: 0, x: 0, top: outputY, bottom: groundY)]
+        case .nand:
+            return [Switch(pChannel: true, input: 0, x: -50, top: supplyY, bottom: outputY),
+                    Switch(pChannel: true, input: 1, x: 50, top: supplyY, bottom: outputY),
+                    Switch(pChannel: false, input: 0, x: 0, top: outputY, bottom: middleDown),
+                    Switch(pChannel: false, input: 1, x: 0, top: middleDown, bottom: groundY)]
+        case .nor:
+            return [Switch(pChannel: true, input: 0, x: 0, top: supplyY, bottom: middleUp),
+                    Switch(pChannel: true, input: 1, x: 0, top: middleUp, bottom: outputY),
+                    Switch(pChannel: false, input: 0, x: -50, top: outputY, bottom: groundY),
+                    Switch(pChannel: false, input: 1, x: 50, top: outputY, bottom: groundY)]
+        }
+    }
+
+    /// Whether the pull-up network connects the output to the supply: its switches in parallel for
+    /// NAND, in series for NOR. The pull-down network conducts exactly when it doesn't.
+    private static func pullUpConducts(_ gate: Gate, _ inputs: [Bool]) -> Bool {
+        let up = switches(gate).filter(\.pChannel).map { $0.isClosed(inputs) }
+        return gate == .nor ? up.allSatisfy { $0 } : up.contains(true)
+    }
+
+    private static func caption(_ gate: Gate, output: Bool) -> String {
+        let state = output
+            ? "Y = 1: the pull-up network connects the output to the supply, and the pull-down network is open."
+            : "Y = 0: the pull-down network connects the output to ground, and the pull-up network is open."
+        switch gate {
+        case .not: return state + " One transistor is always off, so no current flows from the supply to ground."
+        case .nand: return state + " The pull-down transistors are in series: only A = 1 and B = 1 together connect the output to ground."
+        case .nor: return state + " The pull-up transistors are in series: only A = 0 and B = 0 together connect the output to the supply."
+        }
+    }
+
+    static func draw(_ context: inout GraphicsContext, _ size: CGSize, gate: Gate, inputs: [Bool]) {
+        let center = size.width / 2 - 30
+        let high = Palette.p, low = Palette.n
+        let output = pullUpConducts(gate, inputs)
+        let all = switches(gate)
+
+        // Rails and the output node, which spans the parallel branches.
+        let span = all.map(\.x).max() ?? 0
+        context.line(CGPoint(x: center - span - 30, y: supplyY), CGPoint(x: center + span + 30, y: supplyY), color: high, width: 2.5)
+        context.label("supply, 5 V", at: CGPoint(x: center + span + 40, y: supplyY), anchor: .leading, color: high)
+        context.line(CGPoint(x: center - span - 30, y: groundY), CGPoint(x: center + span + 30, y: groundY), color: low, width: 2.5)
+        context.label("ground, 0 V", at: CGPoint(x: center + span + 40, y: groundY), anchor: .leading, color: low)
+        let level = output ? high : low
+        context.line(CGPoint(x: center - span, y: outputY), CGPoint(x: center + span + 70, y: outputY), color: level, width: 2)
+        context.fill(Path(ellipseIn: CGRect(x: center + span + 66, y: outputY - 5, width: 10, height: 10)), with: .color(level))
+        context.label("Y = \(output ? 1 : 0)", at: CGPoint(x: center + span + 84, y: outputY), anchor: .leading,
+                      font: .title3.weight(.semibold).monospacedDigit(), color: level)
+
+        // A switch conducts toward the output when it and the rest of its network do.
+        let pullUp = output, pullDown = !output
+        for item in all {
+            let x = center + item.x
+            let closed = item.isClosed(inputs)
+            let live = closed && (item.pChannel ? pullUp : pullDown)
+            let color = item.pChannel ? high : low
+            let ink = live ? color : Palette.ink
+            let width: CGFloat = live ? 2.2 : 1.3
+            let middle = (item.top + item.bottom) / 2
+            let upper = CGPoint(x: x, y: middle - 13), lower = CGPoint(x: x, y: middle + 13)
+            context.line(CGPoint(x: x, y: item.top), upper, color: ink, width: width)
+            context.line(lower, CGPoint(x: x, y: item.bottom), color: ink, width: width)
+            context.line(lower, closed ? upper : CGPoint(x: x - 15, y: middle - 9), color: closed ? ink : Palette.ink, width: width)
+            for contact in [upper, lower] {
+                context.fill(Path(ellipseIn: CGRect(x: contact.x - 2.5, y: contact.y - 2.5, width: 5, height: 5)), with: .color(ink))
+            }
+            let input = ["A", "B"][item.input]
+            context.label("\(item.pChannel ? "p" : "n") · \(input) = \(inputs[item.input] ? 1 : 0)",
+                          at: CGPoint(x: x + 10, y: middle - 6), anchor: .leading, font: .caption.weight(.semibold), color: color)
+            context.label(closed ? "on" : "off", at: CGPoint(x: x + 10, y: middle + 8), anchor: .leading)
+        }
+        context.label("pull-up", at: CGPoint(x: center - span - 36, y: (supplyY + outputY) / 2), anchor: .trailing, color: high)
+        context.label("pull-down", at: CGPoint(x: center - span - 36, y: (outputY + groundY) / 2), anchor: .trailing, color: low)
     }
 }

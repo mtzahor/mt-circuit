@@ -11,7 +11,7 @@ enum EditorTool: Hashable, Identifiable {
     static let palette: [EditorTool] = [
         .select, .wire,
         .place(.resistor), .place(.capacitor), .place(.inductor), .place(.diode), .place(.bjt), .place(.mosfet),
-        .place(.voltageSource), .place(.currentSource), .place(.opAmp), .place(.ground), .place(.netLabel),
+        .place(.voltageSource), .place(.currentSource), .place(.opAmp), .place(.logicGate), .place(.ground), .place(.netLabel),
     ]
 
     var id: String {
@@ -46,6 +46,7 @@ enum EditorTool: Hashable, Identifiable {
             case .voltageSource: "v"
             case .currentSource: "i"
             case .opAmp: "o"
+            case .logicGate: "a"
             case .ground: "g"
             case .netLabel: "n"
             }
@@ -57,6 +58,7 @@ enum EditorTool: Hashable, Identifiable {
         case .select: "Click to select, drag to move, drag on empty space to box-select. Space rotates."
         case .wire: "Click to start a wire, click to add corners; it ends on a pin or wire. Esc cancels."
         case .place(.netLabel): "Click on a wire or pin to name its net. Labels with the same name are connected."
+        case .place(.logicGate): "Click to place a logic gate, then pick its function in the inspector. Space or right-click rotates. Esc returns to Select."
         case let .place(kind): "Click to place a \(kind.displayName.lowercased()). Space or right-click rotates. Esc returns to Select."
         }
     }
@@ -86,6 +88,8 @@ final class EditorModel: ObservableObject {
     @Published var tool: EditorTool = .select
     @Published var selection: Set<UUID> = []
     @Published var placementRotation = 0
+    /// The function of the next logic gate placed: the one last picked in the inspector.
+    @Published var placementGate = LogicFunction.and
 
     @Published private(set) var result: SimulationResult?
     @Published private(set) var resultIsStale = false
@@ -131,7 +135,9 @@ final class EditorModel: ObservableObject {
     func place(_ kind: ComponentKind, at point: GridPoint) {
         var newID: UUID?
         update("Add \(kind.displayName)") { circuit in
-            let component = Component(kind: kind, name: circuit.nextName(for: kind), position: point, rotation: placementRotation)
+            let component = Component(
+                kind: kind, name: circuit.nextName(for: kind), position: point, rotation: placementRotation,
+                logic: kind == .logicGate ? LogicParameters(function: placementGate) : nil)
             circuit.components.append(component)
             newID = component.id
         }
@@ -216,7 +222,7 @@ final class EditorModel: ObservableObject {
     /// The topic about the selected part, when the selection is a single part.
     var diveInTopic: DiveInTopic? {
         guard selection.count == 1, let component = selectedComponents.first else { return nil }
-        return DiveIn.topic(for: component.kind)
+        return DiveIn.topic(for: component)
     }
 
     func diveIn() {

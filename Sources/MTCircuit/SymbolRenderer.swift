@@ -45,6 +45,7 @@ enum SymbolRenderer {
         switch kind {
         case .voltageSource, .currentSource: 20
         case .opAmp: 32
+        case .logicGate: 26
         case .capacitor: 14
         case .ground: 22
         default: 10
@@ -61,6 +62,7 @@ enum SymbolRenderer {
         case .bjt, .mosfet: CGRect(x: -40, y: -40, width: 64, height: 80)
         case .voltageSource, .currentSource: CGRect(x: -40, y: -22, width: 80, height: 44)
         case .opAmp: CGRect(x: -40, y: -34, width: 80, height: 68)
+        case .logicGate: CGRect(x: -40, y: -26, width: 80, height: 52)
         case .ground: CGRect(x: -14, y: -3, width: 28, height: 28)
         case .netLabel: CGRect(x: -5, y: -5, width: 10, height: 10)
         }
@@ -153,7 +155,9 @@ enum SymbolRenderer {
         ctx.saveGState()
         ctx.translateBy(x: origin.x, y: origin.y)
         ctx.rotate(by: CGFloat(component.rotation) * .pi / 2)
-        drawBody(component.kind, in: ctx, color: color, polarity: component.transistor?.polarity ?? .n)
+        drawBody(
+            component.kind, in: ctx, color: color, polarity: component.transistor?.polarity ?? .n,
+            gate: component.logic?.function ?? .and)
         ctx.restoreGState()
 
         if component.kind.isSource {
@@ -168,11 +172,12 @@ enum SymbolRenderer {
     }
 
     /// Strokes a symbol body in local coordinates (pins at (±40, 0), or (0, 0) for ground;
-    /// an op-amp's inputs are at (−40, ±20) and its output at (40, 0); a transistor's control pin is
-    /// at (−40, 0) and its others at (20, ±40)). P-type transistors are drawn upside down.
+    /// an op-amp's or two-input logic gate's inputs are at (−40, ±20) and its output at (40, 0); a
+    /// transistor's control pin is at (−40, 0) and its others at (20, ±40)). P-type transistors are
+    /// drawn upside down. A logic gate is drawn with the shape of its function `gate`.
     static func drawBody(
         _ kind: ComponentKind, in ctx: CGContext, color: NSColor, lineWidth: CGFloat = SchematicStyle.lineWidth,
-        polarity: TransistorParameters.Polarity = .n
+        polarity: TransistorParameters.Polarity = .n, gate: LogicFunction = .and
     ) {
         ctx.setStrokeColor(color.cgColor)
         ctx.setFillColor(color.cgColor)
@@ -257,6 +262,9 @@ enum SymbolRenderer {
             ctx.addLine(to: CGPoint(x: -28, y: 32))
             ctx.closePath()
             ctx.strokePath()
+
+        case .logicGate:
+            drawGate(gate, in: ctx)
 
         case .ground:
             line(0, 0, 0, 12)
@@ -351,6 +359,58 @@ enum SymbolRenderer {
             arrow(tip: CGPoint(x: polarity == .n ? 12 : -1, y: 12), direction: CGVector(dx: outward, dy: 0))
         }
         ctx.restoreGState()
+    }
+
+    /// A logic gate pointing right, in the distinctive-shape style: a D for AND, a curved shield for
+    /// OR, a second curve behind it for XOR, and a triangle for NOT. A bubble on the output means NOT.
+    private static func drawGate(_ function: LogicFunction, in ctx: CGContext) {
+        func line(_ x1: CGFloat, _ y1: CGFloat, _ x2: CGFloat, _ y2: CGFloat) {
+            ctx.move(to: CGPoint(x: x1, y: y1))
+            ctx.addLine(to: CGPoint(x: x2, y: y2))
+        }
+        let front: CGFloat
+        switch function {
+        case .not:
+            line(-40, 0, -20, 0)
+            ctx.move(to: CGPoint(x: -20, y: -18))
+            ctx.addLine(to: CGPoint(x: 16, y: 0))
+            ctx.addLine(to: CGPoint(x: -20, y: 18))
+            ctx.closePath()
+            front = 16
+        case .and, .nand:
+            line(-40, -20, -24, -20)
+            line(-40, 20, -24, 20)
+            ctx.move(to: CGPoint(x: -24, y: -24))
+            ctx.addLine(to: CGPoint(x: 0, y: -24))
+            ctx.addArc(center: .zero, radius: 24, startAngle: -.pi / 2, endAngle: .pi / 2, clockwise: false)
+            ctx.addLine(to: CGPoint(x: -24, y: 24))
+            ctx.closePath()
+            front = 24
+        case .or, .nor, .xor, .xnor:
+            // The back is a quadratic curve through x = −24 + 28·t·(1 − t) at y = 24·(2t − 1), so the
+            // inputs at y = ±20 meet it 2.14 in from its ends; an XOR's extra curve is 6 further back.
+            let isXOR = function == .xor || function == .xnor
+            let lead: CGFloat = (isXOR ? -30 : -24) + 28 * 11 / 144
+            line(-40, -20, lead, -20)
+            line(-40, 20, lead, 20)
+            ctx.move(to: CGPoint(x: -24, y: -24))
+            ctx.addCurve(to: CGPoint(x: 24, y: 0), control1: CGPoint(x: 0, y: -24), control2: CGPoint(x: 16, y: -14))
+            ctx.addCurve(to: CGPoint(x: -24, y: 24), control1: CGPoint(x: 16, y: 14), control2: CGPoint(x: 0, y: 24))
+            ctx.addQuadCurve(to: CGPoint(x: -24, y: -24), control: CGPoint(x: -10, y: 0))
+            ctx.closePath()
+            if isXOR {
+                ctx.move(to: CGPoint(x: -30, y: -24))
+                ctx.addQuadCurve(to: CGPoint(x: -30, y: 24), control: CGPoint(x: -16, y: 0))
+            }
+            front = 24
+        }
+        if function.isInverting {
+            ctx.addEllipse(in: CGRect(x: front, y: -4, width: 8, height: 8))
+            line(front + 8, 0, 40, 0)
+        } else {
+            line(front, 0, 40, 0)
+        }
+        ctx.strokePath()
     }
 
     /// The − and + marks at the inputs, drawn upright so the minus stays horizontal when rotated.
@@ -515,6 +575,8 @@ enum SymbolRenderer {
                 tag.closeSubpath()
                 ctx.addPath(tag)
                 ctx.strokePath()
+            case .place(.logicGate):
+                drawGateIcon(.and, in: ctx)
             case let .place(kind):
                 let scale: CGFloat = kind.isSource ? 0.36 : kind == .opAmp ? 0.26 : kind.isTransistor ? 0.22 : 0.3
                 ctx.scaleBy(x: scale, y: scale)
@@ -532,5 +594,26 @@ enum SymbolRenderer {
         image.isTemplate = true
         iconCache[tool.id] = image
         return image
+    }
+
+    /// Template image of a logic gate with `function`, the size of a toolbar icon.
+    static func icon(for function: LogicFunction) -> NSImage {
+        let key = "gate-\(function.rawValue)"
+        if let cached = iconCache[key] { return cached }
+        let image = NSImage(size: NSSize(width: 26, height: 18), flipped: true) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            ctx.translateBy(x: rect.midX, y: rect.midY)
+            drawGateIcon(function, in: ctx)
+            return true
+        }
+        image.isTemplate = true
+        iconCache[key] = image
+        return image
+    }
+
+    private static func drawGateIcon(_ function: LogicFunction, in ctx: CGContext) {
+        let scale: CGFloat = 0.3
+        ctx.scaleBy(x: scale, y: scale)
+        drawBody(.logicGate, in: ctx, color: .black, lineWidth: 1.5 / scale, gate: function)
     }
 }

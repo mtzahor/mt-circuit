@@ -10,6 +10,7 @@ public enum Tutorial {
         rcTimeConstant, inductors, lowPassFilter, highPassFilter, resonance,
         diode, rectifier, transistorSwitch, transistorBias, mosfet,
         invertingAmplifier, nonInvertingAmplifier,
+        logicGates, nandUniversal, binaryAddition, srLatch, propagationDelay, cmosGates,
     ]
 
     public static func lesson(withID id: String) -> Lesson? {
@@ -841,6 +842,315 @@ public enum Tutorial {
             starter: circuit(feedback: false),
             solution: circuit(feedback: true))
     }
+
+    // MARK: - Digital Logic
+
+    private static let twoInputs = [(name: "A", source: "VA"), (name: "B", source: "VB")]
+
+    static var logicGates: Lesson {
+        func circuit(invertB: Bool) -> Circuit {
+            var b = Bench()
+            b.logicInput("VA", "a", top: GridPoint(2, 3), to: GridPoint(12, 3), bit: 0, of: 2)
+            b.wire(GridPoint(12, 3), GridPoint(12, 7), GridPoint(14, 7))
+            b.gate(.and, "U1", at: GridPoint(16, 8))
+            if invertB {
+                b.logicInput("VB", "b", top: GridPoint(2, 13), to: GridPoint(8, 13), bit: 1, of: 2)
+                b.gate(.not, "U2", at: GridPoint(10, 13))
+            } else {
+                b.logicInput("VB", "b", top: GridPoint(2, 13), to: GridPoint(12, 13), bit: 1, of: 2)
+            }
+            b.wire(GridPoint(12, 13), GridPoint(12, 9), GridPoint(14, 9))
+            b.wire(GridPoint(18, 8), GridPoint(24, 8))
+            b.label("y", at: GridPoint(22, 8))
+            b.countThrough(inputs: 2)
+            return b.circuit
+        }
+        return Lesson(
+            id: "logic-gates", chapter: "Digital Logic", title: "Logic Gates",
+            introduction: """
+                Digital circuits work with just two levels: a voltage near the supply stands for **1**, and \
+                one near 0 V for **0**. A **logic gate** computes a 1 or a 0 from its inputs:
+
+                **NOT** inverts its input.
+                **AND** is 1 only when both inputs are 1.
+                **OR** is 1 when either input is 1.
+                **XOR** is 1 when the inputs differ.
+                **NAND**, **NOR**, and **XNOR** are AND, OR, and XOR inverted. A bubble on a gate's output means NOT.
+
+                A **truth table** lists the output for every combination of inputs. For an AND gate:
+
+                > A B → y:   00 → 0,   01 → 0,   10 → 0,   11 → 1
+
+                These gates run on 5 V: their outputs are 0 V or 5 V, and their inputs switch at 2.5 V. The \
+                sources VA and VB count through the four combinations, a millisecond each, so the plot steps \
+                through the truth table. Press **A** to place a logic gate, and pick its function in the inspector.
+                """,
+            challenge: "Make y 1 only when A is 1 and B is 0.",
+            goals: [
+                .truthTable("y", inputs: twoInputs, "y = A AND NOT B, for every input") { $0[0] && !$0[1] },
+            ],
+            hints: [
+                "The truth table you want is 00 → 0, 01 → 0, 10 → 1, 11 → 0: A AND the opposite of B.",
+                "Invert B with a NOT gate before it reaches U1. Delete the wire from b to U1 to make room.",
+                "Press A and click to place a gate, then pick NOT in the inspector. A NOT gate's input and output are in line, like a resistor's pins.",
+            ],
+            answer: """
+                Feed B through a NOT gate into U1's lower input: y = A AND (NOT B). In the plot, y is high \
+                only in the third millisecond, while A = 1 and B = 0.
+                """,
+            starter: circuit(invertB: false),
+            solution: circuit(invertB: true))
+    }
+
+    static var nandUniversal: Lesson {
+        var starter = Bench()
+        starter.logicInput("VA", "a", top: GridPoint(2, 3), to: GridPoint(12, 3), bit: 0, of: 2)
+        starter.logicInput("VB", "b", top: GridPoint(2, 13), to: GridPoint(12, 13), bit: 1, of: 2)
+        starter.gate(.nand, "U1", at: GridPoint(16, 8))
+        starter.wire(GridPoint(12, 3), GridPoint(12, 7), GridPoint(14, 7))
+        starter.wire(GridPoint(12, 13), GridPoint(12, 9), GridPoint(14, 9))
+        starter.wire(GridPoint(18, 8), GridPoint(38, 8))
+        starter.label("y", at: GridPoint(37, 8))
+        starter.countThrough(inputs: 2)
+        var solution = Bench()
+        solution.xorFromNAND()
+        solution.countThrough(inputs: 2)
+        return Lesson(
+            id: "nand-universal", chapter: "Digital Logic", title: "NAND Is Universal",
+            introduction: """
+                **NAND**, NOT-AND, is 0 only when both of its inputs are 1. It is **universal**: every other \
+                logic function can be built from NAND gates alone. With its inputs tied together, a NAND gate \
+                is a NOT gate, and a NAND followed by a NOT is an AND.
+
+                **XOR**, exclusive or, is 1 when its inputs differ:
+
+                > A B → y:   00 → 0,   01 → 1,   10 → 1,   11 → 0
+
+                It takes four NAND gates. Chips are built mostly from NAND gates, because a CMOS NAND gate \
+                needs only four transistors.
+                """,
+            challenge: "Using only NAND gates, make y = A XOR B.",
+            goals: [
+                .truthTable("y", inputs: twoInputs, "y = A XOR B, for every input") { $0[0] != $0[1] },
+                .onlyGates(.nand),
+            ],
+            hints: [
+                "U1 computes n = NAND(A, B), which is 0 only when both inputs are 1.",
+                "NAND(A, n) is 0 only when A is 1 and B is 0. NAND(n, B) is 0 only when B is 1 and A is 0.",
+                "A fourth NAND of those two is 1 when either of them is 0: that's y. Delete the wire from U1 to y first, and duplicate U1 (⌘D) for the new gates.",
+            ],
+            answer: """
+                With n = NAND(A, B), y = NAND(NAND(A, n), NAND(n, B)): four NAND gates. Dive into an XOR \
+                gate to see this circuit, or into a NAND gate to see its four transistors.
+                """,
+            starter: starter.circuit,
+            solution: solution.circuit)
+    }
+
+    static var binaryAddition: Lesson {
+        let inputs = twoInputs + [(name: "Cin", source: "VC")]
+        var starter = Bench()
+        starter.halfAdder(inputs: 3)
+        starter.wire(GridPoint(20, 4), GridPoint(40, 4))
+        starter.label("s", at: GridPoint(39, 4))
+        starter.wire(GridPoint(20, 10), GridPoint(42, 10))
+        starter.label("cout", at: GridPoint(41, 10))
+        starter.logicInput("VC", "cin", top: GridPoint(2, 21), bit: 2, of: 3)
+        starter.countThrough(inputs: 3)
+
+        // U1's output p = A XOR B feeds U3 = XOR(p, cin), the sum, and U4 = AND(p, cin). U5 ORs
+        // U4 with U2 = AND(A, B) into the carry out.
+        var solution = Bench()
+        solution.halfAdder(inputs: 3)
+        solution.logicInput("VC", "cin", top: GridPoint(2, 21), to: GridPoint(24, 21), bit: 2, of: 3)
+        solution.gate(.xor, "U3", at: GridPoint(28, 6))
+        solution.gate(.and, "U4", at: GridPoint(28, 14))
+        solution.gate(.or, "U5", at: GridPoint(36, 12))
+        solution.wire(GridPoint(20, 4), GridPoint(22, 4), GridPoint(22, 13), GridPoint(26, 13))
+        solution.wire(GridPoint(22, 5), GridPoint(26, 5))
+        solution.wire(GridPoint(24, 21), GridPoint(24, 7), GridPoint(26, 7))
+        solution.wire(GridPoint(24, 15), GridPoint(26, 15))
+        solution.wire(GridPoint(30, 6), GridPoint(40, 6))
+        solution.label("s", at: GridPoint(39, 6))
+        solution.wire(GridPoint(20, 10), GridPoint(32, 10), GridPoint(32, 11), GridPoint(34, 11))
+        solution.wire(GridPoint(30, 14), GridPoint(32, 14), GridPoint(32, 13), GridPoint(34, 13))
+        solution.wire(GridPoint(38, 12), GridPoint(42, 12))
+        solution.label("cout", at: GridPoint(41, 12))
+        solution.countThrough(inputs: 3)
+        return Lesson(
+            id: "binary-addition", chapter: "Digital Logic", title: "Binary Addition",
+            introduction: """
+                Adding two bits gives a two-bit result: 0 + 1 = 01, and 1 + 1 = 10. The low bit, the \
+                **sum**, is A XOR B; the high bit, the **carry**, is A AND B. Those two gates make a \
+                **half adder**: the circuit here.
+
+                To add numbers of many bits, each column must also add the carry from the column to its \
+                right, as in long addition. A **full adder** adds three bits, A, B, and a carry in, Cin:
+
+                > s = A XOR B XOR Cin
+
+                > cout = (A AND B) OR (Cin AND (A XOR B))
+
+                The carry out is 1 when at least two of the three inputs are. Chain 64 full adders, each \
+                one's carry out into the next one's carry in, and you have the adder of a 64-bit processor.
+                """,
+            challenge: "Extend the half adder into a full adder, so that s and cout include the carry in, Cin.",
+            goals: [
+                .truthTable("s", inputs: inputs, "s = A XOR B XOR Cin, for every input") { $0.filter { $0 }.count % 2 == 1 },
+                .truthTable("cout", inputs: inputs, "cout = 1 when two or more inputs are 1") { $0.filter { $0 }.count >= 2 },
+            ],
+            hints: [
+                "U1's output, A XOR B, is the sum before the carry in. XOR it with Cin to get s.",
+                "There's a carry out when A and B are both 1 (that's U2), or when Cin is 1 and exactly one of A and B is: Cin AND (A XOR B).",
+                "OR those two carries together for cout. In all you need two XOR gates, two AND gates, and an OR gate.",
+            ],
+            answer: """
+                s = (A XOR B) XOR Cin, and cout = (A AND B) OR (Cin AND (A XOR B)). A new XOR gate after U1 \
+                gives the sum; U2 and a new AND gate give the two ways to carry, and an OR gate combines \
+                them. A full adder is two half adders and an OR gate.
+                """,
+            starter: starter.circuit,
+            solution: solution.circuit)
+    }
+
+    static var srLatch: Lesson {
+        Lesson(
+            id: "sr-latch", chapter: "Digital Logic", title: "The SR Latch",
+            introduction: """
+                Each gate so far computes its output from its inputs alone, so it forgets them the moment \
+                they change. Memory needs **feedback**: an output fed back into an input.
+
+                Cross-couple two NOR gates, each one's output into one input of the other, and you have an \
+                **SR latch**. While both its inputs are 0, it holds whichever state it is in: q = 1 and \
+                qbar = 0, or the other way around. A pulse on **S**, set, makes q = 1; a pulse on **R**, \
+                reset, makes q = 0. After the pulse, the latch remembers.
+
+                Here R pulses at the start and again at 3 ms, and S pulses at 1 ms. Each gate's second \
+                input is grounded, so for now q is just NOT R.
+                """,
+            challenge: "Replace the grounds with feedback, qbar into U1 and q into U2, so that q remembers each pulse.",
+            goals: [
+                .voltage("q", at: 0.8e-3, .atMost(0.5), stopTime: 5e-3),
+                .voltage("q", at: 2.5e-3, .atLeast(4.5), stopTime: 5e-3),
+                .voltage("q", at: 4.5e-3, .atMost(0.5), stopTime: 5e-3),
+            ],
+            hints: [
+                "Delete the ground symbols on U1's lower input and U2's upper input.",
+                "Wire q, U1's output, to U2's upper input, and qbar, U2's output, to U1's lower input. Wires that cross without a dot aren't connected.",
+                "Instead of drawing wires, you can put net labels named q and qbar on the inputs: labels with the same name are connected.",
+            ],
+            answer: """
+                With each output fed back, S's pulse at 1 ms sets the latch, and it keeps q = 1 until R's \
+                pulse at 3 ms resets it. V(q) is high from 1 ms to 3 ms, not just during the pulse.
+                """,
+            starter: Bench.srLatch(feedback: false),
+            solution: Bench.srLatch(feedback: true))
+    }
+
+    static var propagationDelay: Lesson {
+        func circuit(inverters: Int) -> Circuit {
+            var b = Bench()
+            var enable = SourceWaveform(shape: .step)
+            enable.delay = 50e-9
+            b.vertical(.voltageSource, "VEN", 5, top: GridPoint(2, 5), waveform: enable)
+            b.ground(at: GridPoint(2, 9))
+            b.wire(GridPoint(2, 5), GridPoint(12, 5))
+            b.label("en", at: GridPoint(5, 5))
+            b.gate(.nand, "U1", at: GridPoint(14, 6))
+            var x = 16
+            for index in 0..<inverters {
+                b.wire(GridPoint(x, 6), GridPoint(x + 2, 6))
+                b.gate(.not, "U\(index + 2)", at: GridPoint(x + 4, 6))
+                x += 6
+            }
+            b.wire(GridPoint(x, 6), GridPoint(x + 4, 6), GridPoint(x + 4, 10), GridPoint(10, 10), GridPoint(10, 7), GridPoint(12, 7))
+            b.label("out", at: GridPoint(x + 2, 6))
+            b.circuit.simulation.analysis = .transient
+            b.circuit.simulation.stopTime = 500e-9
+            return b.circuit
+        }
+        return Lesson(
+            id: "propagation-delay", chapter: "Digital Logic", title: "Propagation Delay",
+            introduction: """
+                A gate doesn't respond instantly. Its transistors must charge the inputs of the next gates, \
+                which are small capacitors, and that takes a **propagation delay**, t_pd: 10 ns for the \
+                gates here, like a 74HC logic chip, and a few picoseconds inside a processor.
+
+                Delay limits how fast a circuit can run, but it can also be put to work. Connect an odd \
+                number of inverting gates in a ring and no state is stable: each gate flips the next, and \
+                the change runs around the ring forever. The output completes a cycle after the change has \
+                gone around twice, so a **ring oscillator** of N gates runs at
+
+                > f = 1 / (2 · N · t_pd)
+
+                U1 is a NAND gate that acts as an inverter once its other input, en, rises at 50 ns. Until \
+                then it holds the ring still. Hover over the plot to read the times of V(out)'s edges.
+                """,
+            challenge: "The ring of three gates oscillates at about 17 MHz. Slow it down to 10 MHz.",
+            goals: [
+                .frequency("out", after: 150e-9, .near(10e6, tolerance: 0.05), stopTime: 500e-9),
+            ],
+            hints: [
+                "With t_pd = 10 ns, f = 1 / (2 · N · 10 ns). How many gates make 10 MHz?",
+                "Add two more NOT gates to the ring. The ring needs an odd number of inverting gates, or it settles instead of oscillating.",
+                "Or keep three gates, and lengthen each one's propagation delay in the inspector.",
+            ],
+            answer: """
+                1 / (2 · N · 10 ns) = 10 MHz gives N = 5: add two NOT gates to the ring. Keeping three gates \
+                and giving each a propagation delay of 16.7 ns works too.
+                """,
+            starter: circuit(inverters: 2),
+            solution: circuit(inverters: 4))
+    }
+
+    static var cmosGates: Lesson {
+        var starter = Bench()
+        starter.transistor(.mosfet, "M2", .p, at: GridPoint(18, 6))
+        starter.transistor(.mosfet, "M1", at: GridPoint(18, 14))
+        starter.wire(GridPoint(19, 4), GridPoint(19, 2))
+        starter.label("vdd", at: GridPoint(26, 2))
+        starter.wire(GridPoint(19, 8), GridPoint(19, 12))
+        starter.wire(GridPoint(19, 10), GridPoint(37, 10))
+        starter.label("y", at: GridPoint(36, 10))
+        starter.wire(GridPoint(19, 16), GridPoint(19, 24))
+        starter.ground(at: GridPoint(19, 24))
+        starter.gateLabel("a", at: GridPoint(16, 6))
+        starter.gateLabel("a", at: GridPoint(16, 14))
+        starter.supply(at: GridPoint(42, 2), from: GridPoint(19, 2))
+        starter.logicInput("VA", "a", top: GridPoint(2, 8), bit: 0, of: 2)
+        starter.logicInput("VB", "b", top: GridPoint(2, 16), bit: 1, of: 2)
+        starter.countThrough(inputs: 2)
+        return Lesson(
+            id: "cmos-gates", chapter: "Digital Logic", title: "Gates from Transistors",
+            introduction: """
+                Inside every CMOS logic gate are MOSFETs used as switches. An n-channel MOSFET conducts \
+                when its gate is high; a p-channel MOSFET conducts when its gate is low.
+
+                This circuit is a **CMOS inverter**, a NOT gate. When A is low, M2 (p-channel) connects y \
+                to the 5 V supply, vdd. When A is high, M1 (n-channel) connects y to ground. One of them is \
+                always off, so no current flows at rest.
+
+                A **NAND** gate needs two more transistors. Its output must fall only when A **and** B are \
+                high, so its n-channel transistors are in **series**. It must rise when A **or** B is low, \
+                so its p-channel transistors are in **parallel**.
+                """,
+            challenge: "Turn the inverter into a NAND gate of A and B, built from MOSFETs.",
+            goals: [
+                .truthTable("y", inputs: twoInputs, "y = A NAND B, for every input") { !($0[0] && $0[1]) },
+                .avoids(.logicGate, "Use MOSFETs, not logic gates"),
+            ],
+            hints: [
+                "Add an n-channel MOSFET in series with M1, between M1's source and ground: delete the wire from M1 to ground first. Its gate goes to b.",
+                "Add a p-channel MOSFET in parallel with M2, from vdd to y. Pick P-channel in the inspector: it's drawn upside down, with its source on top.",
+                "Connect the new transistors' gates to b with wires, or with net labels named b, like the labels a on M1 and M2.",
+            ],
+            answer: """
+                An n-channel MOSFET with its gate on b goes between M1's source and ground, and a p-channel \
+                one with its gate on b from vdd to y, beside M2. Dive into a NAND gate to see this circuit.
+                """,
+            starter: starter.circuit,
+            solution: DiveInCircuits.cmosGate(.nand))
+    }
 }
 
 // MARK: - Layout
@@ -878,6 +1188,121 @@ struct Bench {
         circuit.components.append(Component(kind: .opAmp, name: name, position: plus + GridPoint(2, -1), rotation: 0))
     }
 
+    /// A logic gate pointing right at `position`: a two-input gate's inputs are at + (−2, −1) and
+    /// + (−2, 1), a NOT gate's at + (−2, 0), and its output is at + (2, 0).
+    mutating func gate(_ function: LogicFunction, _ name: String, at position: GridPoint) {
+        circuit.components.append(Component(
+            kind: .logicGate, name: name, position: position, rotation: 0, logic: LogicParameters(function: function)))
+    }
+
+    /// Logic input `net`: a 5 V source named `name` from `top` down to ground, which counts as bit
+    /// `bit` of `count` (see `counting`), and a wire from its + terminal to `end`, labeled three
+    /// columns along. By default the wire ends at the label.
+    mutating func logicInput(_ name: String, _ net: String, top: GridPoint, to end: GridPoint? = nil, bit: Int, of count: Int) {
+        vertical(.voltageSource, name, 5, top: top, waveform: Self.counting(bit: bit, of: count))
+        ground(at: top + GridPoint(0, 4))
+        wire(top, end ?? top + GridPoint(3, 0))
+        label(net, at: top + GridPoint(3, 0))
+    }
+
+    /// A pulse train for bit `bit` (0 is the most significant) of `count` inputs that count through
+    /// every combination, from all 0s to all 1s, one millisecond each.
+    static func counting(bit: Int, of count: Int) -> SourceWaveform {
+        var waveform = SourceWaveform(shape: .pulse)
+        waveform.period = Double(1 << (count - bit)) * 1e-3
+        waveform.delay = waveform.period / 2
+        waveform.pulseWidth = waveform.period / 2
+        return waveform
+    }
+
+    /// A transient analysis over every combination of `count` inputs made by `logicInput`.
+    mutating func countThrough(inputs count: Int) {
+        circuit.simulation.analysis = .transient
+        circuit.simulation.stopTime = Double(1 << count) * 1e-3
+    }
+
+    /// A 5 V supply V1 from `top` down to ground, wired to the supply rail at `rail`.
+    mutating func supply(at top: GridPoint, from rail: GridPoint) {
+        var waveform = SourceWaveform()
+        waveform.acMagnitude = 0
+        vertical(.voltageSource, "V1", 5, top: top, waveform: waveform)
+        wire(rail, top)
+        ground(at: top + GridPoint(0, 4))
+    }
+
+    /// A short wire from a transistor's gate at `pin`, two columns left to a label `net`.
+    mutating func gateLabel(_ net: String, at pin: GridPoint) {
+        wire(pin, pin - GridPoint(2, 0))
+        label(net, at: pin - GridPoint(2, 0))
+    }
+
+    /// A CMOS NAND gate between the rail vdd (y = 2) and ground: M2 and M4 (p-channel, gates at
+    /// (16, 6) and (30, 6)) in parallel from vdd to the output, and M1 above M3 (n-channel, gates
+    /// at (16, 14) and (16, 20)) in series from the output to ground. A drives M1 and M2, B drives
+    /// M3 and M4, and each gate is labeled with its input. The output runs from (33, 10) right to
+    /// `outputEnd`, labeled `output` at x = 36.
+    mutating func cmosNAND(output: String = "y", outputEnd: Int = 37) {
+        transistor(.mosfet, "M2", .p, at: GridPoint(18, 6))
+        transistor(.mosfet, "M4", .p, at: GridPoint(32, 6))
+        transistor(.mosfet, "M1", at: GridPoint(18, 14))
+        transistor(.mosfet, "M3", at: GridPoint(18, 20))
+        wire(GridPoint(19, 4), GridPoint(19, 2), GridPoint(33, 2), GridPoint(33, 4))
+        label("vdd", at: GridPoint(26, 2))
+        wire(GridPoint(19, 8), GridPoint(19, 10), GridPoint(33, 10), GridPoint(33, 8))
+        wire(GridPoint(33, 10), GridPoint(outputEnd, 10))
+        label(output, at: GridPoint(36, 10))
+        wire(GridPoint(19, 10), GridPoint(19, 12))
+        wire(GridPoint(19, 16), GridPoint(19, 18))
+        wire(GridPoint(19, 22), GridPoint(19, 24))
+        ground(at: GridPoint(19, 24))
+        gateLabel("a", at: GridPoint(16, 6))
+        gateLabel("b", at: GridPoint(30, 6))
+        gateLabel("a", at: GridPoint(16, 14))
+        gateLabel("b", at: GridPoint(16, 20))
+    }
+
+    /// A CMOS NOR gate: M2 above M4 (p-channel) in series from the rail vdd at (19, 2) to the
+    /// output y, and M1 and M3 (n-channel) side by side from y to ground. A drives M1 and M2, and B
+    /// drives M3 and M4.
+    mutating func cmosNOR() {
+        transistor(.mosfet, "M2", .p, at: GridPoint(18, 6))
+        transistor(.mosfet, "M4", .p, at: GridPoint(18, 12))
+        transistor(.mosfet, "M1", at: GridPoint(18, 20))
+        transistor(.mosfet, "M3", at: GridPoint(32, 20))
+        wire(GridPoint(19, 4), GridPoint(19, 2))
+        label("vdd", at: GridPoint(19, 2))
+        wire(GridPoint(19, 8), GridPoint(19, 10))
+        wire(GridPoint(19, 14), GridPoint(19, 18))
+        wire(GridPoint(19, 16), GridPoint(33, 16), GridPoint(33, 18))
+        wire(GridPoint(33, 16), GridPoint(37, 16))
+        label("y", at: GridPoint(36, 16))
+        wire(GridPoint(19, 22), GridPoint(19, 24), GridPoint(33, 24), GridPoint(33, 22))
+        ground(at: GridPoint(19, 24))
+        gateLabel("a", at: GridPoint(16, 6))
+        gateLabel("b", at: GridPoint(16, 12))
+        gateLabel("a", at: GridPoint(16, 20))
+        gateLabel("b", at: GridPoint(30, 20))
+    }
+
+    /// Inputs A (top, y = 3) and B (bottom, y = 13) counting through 00 to 11, and XOR from four
+    /// NAND gates: U1 computes n = NAND(a, b), U2 = NAND(a, n), U3 = NAND(n, b), and U4 = NAND(U2, U3) drives y.
+    mutating func xorFromNAND() {
+        logicInput("VA", "a", top: GridPoint(2, 3), to: GridPoint(22, 3), bit: 0, of: 2)
+        logicInput("VB", "b", top: GridPoint(2, 13), to: GridPoint(22, 13), bit: 1, of: 2)
+        gate(.nand, "U1", at: GridPoint(16, 8))
+        gate(.nand, "U2", at: GridPoint(24, 4))
+        gate(.nand, "U3", at: GridPoint(24, 12))
+        gate(.nand, "U4", at: GridPoint(32, 8))
+        wire(GridPoint(12, 3), GridPoint(12, 7), GridPoint(14, 7))
+        wire(GridPoint(12, 13), GridPoint(12, 9), GridPoint(14, 9))
+        wire(GridPoint(18, 8), GridPoint(20, 8))
+        wire(GridPoint(22, 5), GridPoint(20, 5), GridPoint(20, 11), GridPoint(22, 11))
+        wire(GridPoint(26, 4), GridPoint(28, 4), GridPoint(28, 7), GridPoint(30, 7))
+        wire(GridPoint(26, 12), GridPoint(28, 12), GridPoint(28, 9), GridPoint(30, 9))
+        wire(GridPoint(34, 8), GridPoint(38, 8))
+        label("y", at: GridPoint(37, 8))
+    }
+
     /// Wires through `points` in turn.
     mutating func wire(_ points: GridPoint...) {
         for (start, end) in zip(points, points.dropFirst()) {
@@ -891,6 +1316,54 @@ struct Bench {
 
     mutating func label(_ name: String, at point: GridPoint) {
         circuit.components.append(Component(kind: .netLabel, name: name, position: point))
+    }
+
+    /// Inputs A (y = 3) and B (y = 13), bits 0 and 1 of `count`, into a half adder: U1 = XOR(a, b)
+    /// with its output at (20, 4) and U2 = AND(a, b) with its output at (20, 10).
+    mutating func halfAdder(inputs count: Int) {
+        logicInput("VA", "a", top: GridPoint(2, 3), to: GridPoint(16, 3), bit: 0, of: count)
+        logicInput("VB", "b", top: GridPoint(2, 13), to: GridPoint(14, 13), bit: 1, of: count)
+        gate(.xor, "U1", at: GridPoint(18, 4))
+        gate(.and, "U2", at: GridPoint(18, 10))
+        wire(GridPoint(12, 3), GridPoint(12, 9), GridPoint(16, 9))
+        wire(GridPoint(14, 13), GridPoint(14, 5), GridPoint(16, 5))
+        wire(GridPoint(14, 11), GridPoint(16, 11))
+    }
+
+    /// An SR latch of NOR gates: U1 = NOR(r, qbar) drives q, and U2 = NOR(q, s) drives qbar. R
+    /// pulses at the start and at 3 ms, and S at 1 ms. Without `feedback`, the inputs that would
+    /// take qbar and q are grounded instead.
+    static func srLatch(feedback: Bool) -> Circuit {
+        var b = Bench()
+        var reset = SourceWaveform(shape: .pulse)
+        reset.period = 3e-3
+        var set = SourceWaveform(shape: .pulse)
+        set.delay = 1e-3
+        set.period = 10e-3
+        b.vertical(.voltageSource, "VR", 5, top: GridPoint(2, 3), waveform: reset)
+        b.ground(at: GridPoint(2, 7))
+        b.wire(GridPoint(2, 3), GridPoint(12, 3))
+        b.label("r", at: GridPoint(6, 3))
+        b.vertical(.voltageSource, "VS", 5, top: GridPoint(2, 13), waveform: set)
+        b.ground(at: GridPoint(2, 17))
+        b.wire(GridPoint(2, 13), GridPoint(12, 13))
+        b.label("s", at: GridPoint(6, 13))
+        b.gate(.nor, "U1", at: GridPoint(14, 4))
+        b.gate(.nor, "U2", at: GridPoint(14, 12))
+        b.wire(GridPoint(16, 4), GridPoint(22, 4))
+        b.label("q", at: GridPoint(21, 4))
+        b.wire(GridPoint(16, 12), GridPoint(22, 12))
+        b.label("qbar", at: GridPoint(21, 12))
+        if feedback {
+            b.wire(GridPoint(18, 4), GridPoint(18, 7), GridPoint(10, 7), GridPoint(10, 11), GridPoint(12, 11))
+            b.wire(GridPoint(18, 12), GridPoint(18, 9), GridPoint(9, 9), GridPoint(9, 5), GridPoint(12, 5))
+        } else {
+            b.ground(at: GridPoint(12, 5))
+            b.ground(at: GridPoint(12, 11))
+        }
+        b.circuit.simulation.analysis = .transient
+        b.circuit.simulation.stopTime = 5e-3
+        return b.circuit
     }
 
     /// V1 and R1 side by side, joined top and bottom, with ground at the bottom of V1.

@@ -95,13 +95,15 @@ struct DiveInView: View {
     }
 }
 
-/// A part's toolbar symbol, or a symbol for a building block.
+/// A part's toolbar symbol, the symbol of the gate a logic topic is inside, or a symbol for a building block.
 private struct TopicIcon: View {
     let topic: DiveInTopic
 
     var body: some View {
         if let kind = ComponentKind.allCases.first(where: { DiveIn.topic(for: $0)?.id == topic.id }) {
             Image(nsImage: SymbolRenderer.icon(for: .place(kind)))
+        } else if let function = LogicFunction.allCases.first(where: { DiveIn.topicID(for: $0) == topic.id }) {
+            Image(nsImage: SymbolRenderer.icon(for: function))
         } else {
             Image(systemName: buildingBlockSymbol)
         }
@@ -112,6 +114,7 @@ private struct TopicIcon: View {
         case "differential-pair": "arrow.left.arrow.right"
         case "current-mirror": "square.on.square"
         case "push-pull": "arrow.up.arrow.down"
+        case "sr-latch": "memorychip"
         default: "square.stack.3d.down.right"
         }
     }
@@ -154,7 +157,7 @@ private struct TopicPage: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(topic.category == .parts ? "Inside the part" : "Building block")
+            Text(topic.category == .parts ? "Inside the part" : topic.category == .logic ? "Inside the logic" : "Building block")
                 .font(.caption.weight(.semibold))
                 .textCase(.uppercase)
                 .foregroundStyle(.secondary)
@@ -341,8 +344,9 @@ final class SchematicFigureView: NSView {
     }
 
     private static let regionPadding: CGFloat = 10
-    /// Transistors and diodes keep their default parameters in figures, so their values would only add clutter.
-    private static let unvalued: Set<ComponentKind> = [.bjt, .mosfet, .diode]
+    /// Transistors and diodes keep their default parameters in figures, so their values would only
+    /// add clutter, and a logic gate's shape already shows its function.
+    private static let unvalued: Set<ComponentKind> = [.bjt, .mosfet, .diode, .logicGate]
     private static let titleFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
 
     init(circuit: Circuit, regions: [SchematicRegion]) {

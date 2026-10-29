@@ -32,16 +32,16 @@ private struct ComponentInspector: View {
         Form {
             Section {
                 HStack(spacing: 10) {
-                    Image(nsImage: SymbolRenderer.icon(for: .place(kind)))
+                    Image(nsImage: component.logic.map { SymbolRenderer.icon(for: $0.function) } ?? SymbolRenderer.icon(for: .place(kind)))
                         .foregroundStyle(.secondary)
                     VStack(alignment: .leading) {
                         Text(kind == .netLabel ? component.name : "\(component.name)")
                             .font(.headline)
-                        Text(kind.displayName)
+                        Text(component.logic.map { "\($0.function.displayName) Gate" } ?? kind.displayName)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
-                    if DiveIn.topic(for: kind) != nil {
+                    if DiveIn.topic(for: component) != nil {
                         Spacer()
                         Button { editor.diveIn() } label: {
                             Label("Dive In", systemImage: "water.waves.and.arrow.down")
@@ -67,6 +67,21 @@ private struct ComponentInspector: View {
                         Text(kind == .bjt ? "PNP" : "P-channel").tag(TransistorParameters.Polarity.p)
                     }
                 }
+                if kind == .logicGate {
+                    Picker("Function", selection: Binding(
+                        get: { component.logic?.function ?? .and },
+                        set: { function in
+                            editor.placementGate = function
+                            editor.updateComponent(component.id, "Change Gate Function") { component in
+                                var parameters = component.logic ?? LogicParameters()
+                                parameters.function = function
+                                component.logic = parameters
+                            }
+                        }
+                    )) {
+                        ForEach(LogicFunction.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                    }
+                }
                 if kind.hasValue && !kind.isSource {
                     // A MOSFET's threshold may be zero or negative (depletion mode).
                     let range = kind == .mosfet ? -1e3...1e3 : 1e-18...1e18
@@ -81,6 +96,18 @@ private struct ComponentInspector: View {
                 if kind == .mosfet {
                     transistorField("Transconductance k", "A/V²", \.transconductance, range: 1e-12...1e3)
                     transistorField("λ", "1/V", \.channelLengthModulation, emptyPlaceholder: "none", range: 0...10)
+                }
+                if kind == .logicGate {
+                    SIField(
+                        label: "Propagation delay", unit: "s", value: component.logic?.delay ?? LogicParameters.defaultDelay,
+                        emptyPlaceholder: "none", range: 0...1
+                    ) { delay in
+                        editor.updateComponent(component.id, "Change Propagation Delay") { component in
+                            var parameters = component.logic ?? LogicParameters()
+                            parameters.delay = delay
+                            component.logic = parameters
+                        }
+                    }
                 }
                 if kind == .diode {
                     SIField(label: "Emission coefficient", unit: "", value: component.emissionCoefficient ?? 1, range: 0.01...100) { value in
@@ -131,6 +158,13 @@ private struct ComponentInspector: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if kind == .logicGate {
+                    Text("The output drives toward 0 V or the supply voltage, relative to ground, through "
+                        + "\(SIFormat.string(LogicGateModel.outputResistance, unit: "Ω")); there are no power pins. "
+                        + "Inputs switch at half the supply and draw no current. The output follows them after the propagation delay.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if kind.isSource {
@@ -165,6 +199,7 @@ private struct ComponentInspector: View {
         case .bjt: "Current gain β"
         case .mosfet: "Threshold voltage"
         case .opAmp: "Open-loop gain"
+        case .logicGate: "Supply voltage"
         default: "Value"
         }
     }
@@ -244,6 +279,12 @@ private struct OperatingPointSection: View {
         LabeledContent(label, value: SIFormat.string(value, unit: unit, significantDigits: 4))
     }
 
+    /// A logic voltage with the level it stands for: "4.98 V = 1".
+    private func levelRow(_ label: String, _ voltage: Double, _ gate: LogicGateModel) -> some View {
+        let level = gate.logicValue(voltage).map { $0 ? "1" : "0" } ?? "neither 0 nor 1"
+        return LabeledContent(label, value: "\(SIFormat.string(voltage, unit: "V", significantDigits: 4)) = \(level)")
+    }
+
     var body: some View {
         if let result = editor.result, !editor.resultIsStale,
            case let .operatingPoint(op) = result.output,
@@ -277,6 +318,14 @@ private struct OperatingPointSection: View {
                     row("Gate–source voltage", vgs, "V")
                     row("Drain–source voltage", voltage, "V")
                     row("Drain current", current, "A")
+                case .logicGate:
+                    let gate = element.gate
+                    let inputs = element.inputNodes.count == 1 ? ["Input"] : ["Input A", "Input B"]
+                    ForEach(Array(zip(inputs, element.inputNodes)), id: \.0) { name, node in
+                        levelRow(name, op.nodeVoltages[node], gate)
+                    }
+                    levelRow("Output", voltage, gate)
+                    row("Current into output", current, "A")
                 default:
                     row("Voltage (pin 1 − pin 2)", voltage, "V")
                     row("Current (pin 1 → pin 2)", current, "A")
@@ -285,7 +334,7 @@ private struct OperatingPointSection: View {
             } header: {
                 Text("DC Operating Point")
             } footer: {
-                if element.kind.isTransistor {
+                if element.kind.isTransistor || element.kind == .logicGate {
                     Text("Currents are positive into the pin.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -322,7 +371,7 @@ private struct CircuitSummary: View {
     var body: some View {
         Form {
             Section("Circuit") {
-                ForEach([ComponentKind.resistor, .capacitor, .inductor, .diode, .bjt, .mosfet, .voltageSource, .currentSource, .opAmp], id: \.self) { kind in
+                ForEach([ComponentKind.resistor, .capacitor, .inductor, .diode, .bjt, .mosfet, .voltageSource, .currentSource, .opAmp, .logicGate], id: \.self) { kind in
                     let count = circuit.components.filter { $0.kind == kind }.count
                     if count > 0 {
                         LabeledContent(kind.displayName + "s", value: "\(count)")
@@ -338,6 +387,7 @@ private struct CircuitSummary: View {
                 shortcut("Q M", "BJT, MOSFET")
                 shortcut("V I", "Voltage, current source")
                 shortcut("O", "Op-amp")
+                shortcut("A", "Logic gate")
                 shortcut("G N", "Ground, net label")
                 shortcut("Space", "Rotate")
                 shortcut("⌫", "Delete")

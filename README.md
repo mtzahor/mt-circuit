@@ -1,12 +1,13 @@
 # MT Circuit
 
-A native macOS schematic editor and circuit simulator for R, L, C, diode, transistor, and op-amp circuits.
+A native macOS schematic editor and circuit simulator for R, L, C, diode, transistor, op-amp, and logic gate circuits.
 Swift, SwiftUI and AppKit only: no web views, Electron, or third-party dependencies.
 
 ## Features
 
 - **Schematic editor**: place resistors, capacitors, inductors, diodes, BJTs and MOSFETs (N and
-  P type), voltage and current sources, op-amps, grounds, and net labels on a snapping grid. Draw L-shaped wires, rotate parts, move them
+  P type), voltage and current sources, op-amps, logic gates (AND, OR, NOT, NAND, NOR, XOR, XNOR),
+  grounds, and net labels on a snapping grid. Draw L-shaped wires, rotate parts, move them
   (attached wires follow), box-select, cut/copy/paste/duplicate, and undo/redo everything.
   Junction dots and red markers on unconnected pins show the connectivity.
 - **Simulation** (Modified Nodal Analysis):
@@ -24,12 +25,14 @@ Swift, SwiftUI and AppKit only: no web views, Electron, or third-party dependenc
   or with values substituted. Hover a row to highlight it in both the equations and the matrix,
   and to highlight its net on the schematic. The equations come from the schematic itself, so
   they are shown even when the simulation fails.
-- **Tutorial** (File ▸ Start Tutorial): twenty lessons on electronics fundamentals, from Ohm's
+- **Tutorial** (File ▸ Start Tutorial): twenty-six lessons on electronics fundamentals, from Ohm's
   law and Kirchhoff's laws through RC and RL transients, filters, resonance, diodes, transistors,
-  and op-amps. Each lesson explains a concept, then sets a challenge on a starting circuit. A
-  side panel lists the challenge's goals (such as `V(out) = 3.3 V ± 1 %`), and the app checks
-  them after every edit by running the analyses they need, showing the measured value next to
-  each goal. Hints, a worked answer, and a solution circuit are available for each lesson.
+  op-amps, and digital logic: logic gates, building XOR from NAND gates, a full adder, an SR latch,
+  a ring oscillator, and a NAND gate built from MOSFETs. Each lesson explains a concept, then sets
+  a challenge on a starting circuit. A side panel lists the challenge's goals (such as
+  `V(out) = 3.3 V ± 1 %`, or `y = A XOR B, for every input`), and the app checks them after every
+  edit by running the analyses they need, showing the measured value next to each goal. A truth
+  table goal runs a DC analysis for every combination of inputs. Hints, a worked answer, and a solution circuit are available for each lesson.
   Completed lessons are remembered across launches. The lesson is saved with the document, so a
   saved lesson opens in the tutorial again.
 - **Dive In** (`⌘↓`, the inspector's Dive In button, or right-click a part): a window of linked
@@ -38,12 +41,15 @@ Swift, SwiftUI and AppKit only: no web views, Electron, or third-party dependenc
   schematic. From there, topics lead to the differential pair, current mirror, and push-pull output
   stage, then to the BJT and down to the pn junction. Drawings show the physics: carriers crossing a
   pn junction with forward or reverse bias, electrons crossing a BJT's base, and a MOSFET's channel
-  forming as you raise its gate voltage. Topics with a circuit open it in a new window to simulate,
-  such as the transistor-level op-amp in an inverting amplifier, and part topics link to their
-  tutorial lesson. Window ▸ Dive In opens the window without a selection.
+  forming as you raise its gate voltage. A logic gate opens up into the CMOS transistors of its
+  function: the inverter, NAND, NOR, AND and OR, and XOR from four NAND gates, plus the SR latch.
+  The Logic Gate page shows a gate's transistors as switches that you open and close by setting its
+  inputs. Topics with a circuit open it in a new window to simulate, such as the transistor-level
+  op-amp in an inverting amplifier, and part topics link to their tutorial lesson. Window ▸ Dive In
+  opens the window without a selection.
 - **Auto-run**: re-simulates after every edit.
 - **Documents**: `.mtcircuit` files (JSON) with standard open, save, autosave, and versions.
-  File ▸ New from Example has twelve starter circuits, also included in `Examples/`.
+  File ▸ New from Example has fourteen starter circuits, also included in `Examples/`.
 - **SI values**: type `4.7k`, `10u` / `10µ`, `100n`, `2k2`, `1meg`. `m` is milli; `M` or `meg` is mega.
 
 ## Build and run
@@ -76,6 +82,7 @@ System Settings ▸ Privacy & Security ▸ Open Anyway.
 | `Q` `M` | Place BJT, MOSFET (choose N or P type in the inspector) |
 | `V` `I` | Place voltage source, current source |
 | `O` | Place op-amp |
+| `A` | Place logic gate (pick its function in the inspector) |
 | `G` `N` | Place ground, net label |
 | `Space`, `⌘R`, right-click while placing | Rotate 90° |
 | `⌫` | Delete selection |
@@ -117,6 +124,16 @@ the inputs draw no current. An op-amp's current `I(U1)` is the current *into* it
 so an output that sources current reads negative, like a source; its voltage is the output
 voltage. The model is linear: there are no supply rails, so the output never saturates.
 
+**Logic gates** have their inputs on the left (a NOT gate's one input in line with its output) and
+the output on the right. Pick the function in the inspector; the next gate you place gets the same
+one. A gate's supply is implicit: its output drives toward 0 V or its supply voltage `V_DD` (5 V by
+default), relative to ground, through 50 Ω, and its inputs switch at `V_DD/2` and draw no current.
+In between, each input's level is a steep logistic curve, so a gate is smooth enough for Newton
+iteration and amplifies near its threshold with a gain of 25, like a CMOS gate. The output follows
+the inputs one propagation delay later (10 ns by default): a pure delay, so a ring of `N` inverters
+oscillates at `1 / (2·N·t_pd)`. From rest, gate outputs start at 0 V. An output read as 1 is at
+least 70 % of `V_DD`, and a 0 at most 30 %. `I(U1)` is the current into the output, as for an op-amp.
+
 ## Project layout
 
 ```
@@ -125,6 +142,7 @@ Sources/CircuitCore/       Platform-independent model and simulation engine
   Netlist.swift            Connectivity (union-find over grid points) → numbered nodes per pin
   Simulator.swift          MNA assembly for DC, transient, and AC analyses; Newton–Raphson
   Semiconductors.swift     Diode, BJT, and MOSFET models, and Newton step limiting
+  Logic.swift              Logic gate functions and model, and the history behind their delay
   Equations.swift          Readable circuit equations and the MNA matrix, for the Equations tab
   LinearAlgebra.swift      Complex numbers and dense LU with partial pivoting
   CircuitEditing.swift     Move / rotate / paste with wire rubber-banding
@@ -143,14 +161,14 @@ Sources/MTCircuit/         macOS app
   LessonPanel.swift          Tutorial side panel: lesson text, live goal checks, hints, answer
   TutorialModel.swift        Per-window goal checking, and lesson progress kept across launches
   DiveInView.swift           Dive In window: topic list, history, pages, and schematic figures
-  DiveInIllustrations.swift  Dive In drawings: pn junction, BJT, MOSFET, resistor, capacitor, inductor
+  DiveInIllustrations.swift  Dive In drawings: pn junction, BJT, MOSFET, resistor, capacitor, inductor, CMOS switches
 Tests/CircuitCoreTests/    Swift Testing tests (results checked against analytic solutions)
 ```
 
 ### How the simulator works
 
 Unknowns are the non-ground node voltages, plus one branch current per voltage source,
-inductor, capacitor, diode, op-amp, and MOSFET, and two (`Ic`, `Ib`) per BJT. Every two-terminal branch obeys `cv·(va − vb) + ci·i = rhs`,
+inductor, capacitor, diode, op-amp, MOSFET, and logic gate, and two (`Ic`, `Ib`) per BJT. Every two-terminal branch obeys `cv·(va − vb) + ci·i = rhs`,
 so each analysis only changes the coefficients:
 
 | | DC | t = 0 (from rest) | Backward Euler | Trapezoidal | AC |
@@ -162,18 +180,26 @@ An op-amp is a voltage source from its output to ground whose value is `A·(v+ �
 branch row is `vout − A·v+ + A·v− = 0` in every analysis, and its current appears only in the
 output node's row.
 
-Diodes and transistors make the equations nonlinear: each of their currents is a function of
-one or two control voltages (a diode's `V`, a BJT's `VBE` and `VBC`, a MOSFET's `VGS` and `VDS`).
+Diodes, transistors, and logic gates make the equations nonlinear: each of their currents is a
+function of a few control voltages (a diode's `V`, a BJT's `VBE` and `VBC`, a MOSFET's `VGS` and
+`VDS`, a logic gate's output and input voltages).
 DC and transient solutions with them come from Newton–Raphson iteration. Each iteration replaces
 every such current by its tangent at the previous iterate, a branch equation
 `Σⱼ Gⱼ·vⱼ − i = Σⱼ Gⱼ·vⱼ,ₖ − I(vₖ)` with slopes `Gⱼ = ∂I/∂vⱼ` (for a BJT, the hybrid-π
 `g_m`, `g_π`, `g_μ`, `g_o`), and solves the resulting linear system. Iteration stops when successive solutions agree to 1 ppm (plus 1 µV /
-1 pA), with steps across a pn junction above its critical voltage limited as in SPICE. If the DC solution does
+1 pA), with steps across a pn junction above its critical voltage, MOSFET gate and drain voltages, and
+logic inputs that jump across their threshold limited as in SPICE. If the DC solution does
 not converge, the sources are ramped up from zero; a transient step that does not converge is
-split in halves, up to 10 times. AC analysis replaces each diode and transistor by its tangent at
-the DC operating point: its small-signal model.
+split in halves, up to 10 times. AC analysis replaces each diode, transistor, and logic gate by its
+tangent at the DC operating point: its small-signal model.
 
-Transient analysis uses a fixed step. Without diodes or transistors the matrix is factored once
+A logic gate's output drives toward its function of its inputs one propagation delay earlier. In a
+transient analysis, each gate keeps the history of that target over the last `t_pd`, and each time
+step reads it back, interpolating between time points. When `t_pd` is shorter than the step, the
+delayed time falls inside the step, and the target there depends partly on the present, unknown
+inputs, so Newton iteration solves for it.
+
+Transient analysis uses a fixed step. Without diodes, transistors, or logic gates the matrix is factored once
 and reused for every step.
 A 1 pS `gmin` from each node to ground keeps nodes defined when they are isolated at DC,
 such as a node between two capacitors.

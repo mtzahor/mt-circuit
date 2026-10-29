@@ -11,6 +11,7 @@ public enum Examples {
         [
             voltageDivider, rcStep, rcLowPass, rlPulse, seriesRLC, parallelRLC,
             halfWaveRectifier, diodeClipper, commonEmitterAmplifier, cmosInverter, invertingAmplifier, sallenKeyLowPass,
+            halfAdder, srLatch,
         ]
     }
 
@@ -325,5 +326,23 @@ public enum Examples {
         s.circuit.simulation.stopFrequency = 100e3
         s.circuit.simulation.stopTime = 5e-3
         return Example(name: "Sallen–Key Low-Pass Filter", circuit: s.circuit)
+    }
+
+    /// Adds the bits A and B: the sum s = A XOR B and the carry c = A AND B. The inputs count
+    /// through 00 to 11, a millisecond each.
+    public static var halfAdder: Example {
+        var b = Bench()
+        b.halfAdder(inputs: 2)
+        b.wire(GridPoint(20, 4), GridPoint(24, 4))
+        b.label("s", at: GridPoint(23, 4))
+        b.wire(GridPoint(20, 10), GridPoint(24, 10))
+        b.label("c", at: GridPoint(23, 10))
+        b.countThrough(inputs: 2)
+        return Example(name: "Half Adder", circuit: b.circuit)
+    }
+
+    /// Two cross-coupled NOR gates. R resets the latch at the start and again at 3 ms; S sets it at 1 ms.
+    public static var srLatch: Example {
+        Example(name: "SR Latch", circuit: Bench.srLatch(feedback: true))
     }
 }

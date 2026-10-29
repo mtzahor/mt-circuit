@@ -500,7 +500,9 @@ final class SchematicCanvasView: NSView {
         let ghost = NSColor.labelColor.withAlphaComponent(0.35)
         switch editor.tool {
         case let .place(kind):
-            let component = Component(kind: kind, name: circuit.nextName(for: kind), position: point, rotation: editor.placementRotation)
+            let component = Component(
+                kind: kind, name: circuit.nextName(for: kind), position: point, rotation: editor.placementRotation,
+                logic: kind == .logicGate ? LogicParameters(function: editor.placementGate) : nil)
             SymbolRenderer.draw(component, in: ctx, color: ghost, showText: false)
         case .wire:
             let p = SchematicStyle.point(point)

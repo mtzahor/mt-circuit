@@ -12,6 +12,7 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
     case voltageSource
     case currentSource
     case opAmp
+    case logicGate
     case ground
     case netLabel
 
@@ -26,6 +27,7 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
         case .voltageSource: "Voltage Source"
         case .currentSource: "Current Source"
         case .opAmp: "Op-Amp"
+        case .logicGate: "Logic Gate"
         case .ground: "Ground"
         case .netLabel: "Net Label"
         }
@@ -42,20 +44,21 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
         case .mosfet: "M"
         case .voltageSource: "V"
         case .currentSource: "I"
-        case .opAmp: "U"
+        case .opAmp, .logicGate: "U"
         case .ground: "GND"
         case .netLabel: "net"
         }
     }
 
     /// Unit symbol of the component's primary value. A diode's value is its saturation current,
-    /// a BJT's its current gain β, a MOSFET's its threshold voltage, and an op-amp's its gain.
+    /// a BJT's its current gain β, a MOSFET's its threshold voltage, an op-amp's its gain, and a
+    /// logic gate's its supply voltage.
     public var unitSymbol: String {
         switch self {
         case .resistor: "Ω"
         case .capacitor: "F"
         case .inductor: "H"
-        case .voltageSource, .mosfet: "V"
+        case .voltageSource, .mosfet, .logicGate: "V"
         case .currentSource, .diode: "A"
         case .bjt, .opAmp, .ground, .netLabel: ""
         }
@@ -72,6 +75,7 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
         case .voltageSource: 5
         case .currentSource: 1e-3
         case .opAmp: 1e5
+        case .logicGate: 5
         case .ground, .netLabel: 0
         }
     }
@@ -81,23 +85,29 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
     /// "+" / "from" terminal, or a diode's anode. An op-amp points right: pin 0 is the non-inverting
     /// input (bottom left), pin 1 the inverting input (top left), pin 2 the output. A transistor's
     /// pins are in SPICE order: collector (top right), base (left), emitter (bottom right) for a
-    /// BJT; drain, gate, source for a MOSFET. P-type transistors mirror them (see `Component`).
+    /// BJT; drain, gate, source for a MOSFET. P-type transistors mirror them (see `Component`). A
+    /// logic gate points right like an op-amp, with input A (top left), input B (bottom left), and
+    /// its output last; a NOT gate has one input, in line with its output (see `Component`).
     public var pinOffsets: [GridPoint] {
         switch self {
         case .ground, .netLabel: [GridPoint(0, 0)]
         case .opAmp: [GridPoint(-2, 1), GridPoint(-2, -1), GridPoint(2, 0)]
+        case .logicGate: [GridPoint(-2, -1), GridPoint(-2, 1), GridPoint(2, 0)]
         case .bjt, .mosfet: [GridPoint(1, -2), GridPoint(-2, 0), GridPoint(1, 2)]
         default: [GridPoint(-2, 0), GridPoint(2, 0)]
         }
     }
 
-    /// How messages refer to a pin: "Pin 1", "The anode" of a diode, or "The output" of an op-amp.
-    public func pinName(_ index: Int) -> String {
+    /// How messages refer to pin `index` of `count`: "Pin 1", "The anode" of a diode, or "The
+    /// output" of an op-amp or logic gate.
+    public func pinName(_ index: Int, of count: Int) -> String {
         switch self {
         case .diode: ["The anode", "The cathode"][index]
         case .bjt: ["The collector", "The base", "The emitter"][index]
         case .mosfet: ["The drain", "The gate", "The source"][index]
         case .opAmp: ["The + input", "The − input", "The output"][index]
+        case .logicGate where index == count - 1: "The output"
+        case .logicGate: count == 2 ? "The input" : ["Input A", "Input B"][index]
         default: "Pin \(index + 1)"
         }
     }
@@ -253,6 +263,8 @@ public struct Component: Identifiable, Codable, Hashable, Sendable {
     public var emissionCoefficient: Double?
     /// A transistor's polarity and parameters; nil for other parts.
     public var transistor: TransistorParameters?
+    /// A logic gate's function and delay; nil for other parts.
+    public var logic: LogicParameters?
 
     public init(
         id: UUID = UUID(),
@@ -263,7 +275,8 @@ public struct Component: Identifiable, Codable, Hashable, Sendable {
         value: Double? = nil,
         waveform: SourceWaveform = SourceWaveform(),
         emissionCoefficient: Double? = nil,
-        transistor: TransistorParameters? = nil
+        transistor: TransistorParameters? = nil,
+        logic: LogicParameters? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -274,11 +287,14 @@ public struct Component: Identifiable, Codable, Hashable, Sendable {
         self.waveform = waveform
         self.emissionCoefficient = emissionCoefficient
         self.transistor = transistor ?? (kind.isTransistor ? TransistorParameters() : nil)
+        self.logic = logic ?? (kind == .logicGate ? LogicParameters() : nil)
     }
 
     /// Pin locations relative to the origin, before rotation. P-type transistors are drawn upside
     /// down, with the emitter or source on top toward the positive supply, so their pins mirror.
+    /// A NOT gate's single input is in line with its output, like a two-terminal part's pins.
     public var pinOffsets: [GridPoint] {
+        if kind == .logicGate, logic?.function.inputCount == 1 { return [GridPoint(-2, 0), GridPoint(2, 0)] }
         guard kind.isTransistor, transistor?.polarity == .p else { return kind.pinOffsets }
         return kind.pinOffsets.map { GridPoint($0.x, -$0.y) }
     }
@@ -288,10 +304,17 @@ public struct Component: Identifiable, Codable, Hashable, Sendable {
         pinOffsets.map { position + $0.rotated(by: rotation) }
     }
 
-    /// Human-readable value, e.g. "4.7 kΩ", "SIN 1 V 1 kHz", "A = 100k", or "Is = 10 fA".
+    /// Human-readable value, e.g. "4.7 kΩ", "SIN 1 V 1 kHz", "A = 100k", "Is = 10 fA", or "NAND".
     public var valueDescription: String {
         guard kind.hasValue else { return "" }
         if kind == .opAmp { return "A = \(SIFormat.compact(value))" }
+        if kind == .logicGate {
+            let parameters = logic ?? LogicParameters()
+            var parts = [parameters.function.displayName]
+            if value != kind.defaultValue { parts.append(SIFormat.string(value, unit: "V")) }
+            if parameters.delay != LogicParameters.defaultDelay { parts.append("tpd = \(SIFormat.string(parameters.delay, unit: "s"))") }
+            return parts.joined(separator: ", ")
+        }
         if kind == .diode {
             let current = "Is = \(SIFormat.string(value, unit: "A"))"
             guard let n = emissionCoefficient, n != 1 else { return current }

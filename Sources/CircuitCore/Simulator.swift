@@ -48,7 +48,7 @@ public enum SimulationError: Error, LocalizedError, Equatable {
     case singular(unknown: String)
     case invalidSettings(String)
     case tooManyTimeSteps(Int)
-    /// Newton–Raphson iteration on the diodes and transistors did not settle: at the DC solution when `time` is nil.
+    /// Newton–Raphson iteration on the diodes, transistors, and logic gates did not settle: at the DC solution when `time` is nil.
     case noConvergence(time: Double?)
     case cancelled
 
@@ -63,10 +63,11 @@ public enum SimulationError: Error, LocalizedError, Equatable {
         case let .tooManyTimeSteps(count):
             "The transient analysis would need \(count) time steps. Increase the time step or shorten the stop time."
         case .noConvergence(time: nil):
-            "The equations of the diodes and transistors did not converge to a DC solution. "
-                + "Check for extreme component values, or devices connected with no consistent operating point."
+            "The equations of the diodes, transistors, and logic gates did not converge to a DC solution. "
+                + "Check for extreme component values, or devices connected with no consistent operating point, "
+                + "such as a ring of an odd number of inverters, which can only oscillate."
         case let .noConvergence(time?):
-            "The equations of the diodes and transistors did not converge at t = "
+            "The equations of the diodes, transistors, and logic gates did not converge at t = "
                 + "\(SIFormat.string(time, unit: "s", significantDigits: 4)), even after splitting the time step. "
                 + "Try a smaller time step."
         case .cancelled:
@@ -80,16 +81,17 @@ public enum SimulationError: Error, LocalizedError, Equatable {
 /// Circuit simulator using Modified Nodal Analysis.
 ///
 /// Unknowns are the non-ground node voltages followed by branch currents: one for each
-/// voltage source, inductor, capacitor, diode, op-amp, and MOSFET, and two (Ic, Ib) for each BJT.
+/// voltage source, inductor, capacitor, diode, op-amp, MOSFET, and logic gate, and two (Ic, Ib) for each BJT.
 /// Each two-terminal branch obeys `cv · (va − vb) + ci · i = rhs`, which lets every analysis
 /// reuse the same stamp with different coefficients (see `branchEquation`). An op-amp is a
 /// voltage source from its output to ground whose value is `A · (v+ − v−)`; its inputs draw no current.
 ///
-/// Diodes and transistors make the equations nonlinear: each of their currents is a function of
-/// a few control voltages (see `NonlinearModel`). DC and transient solutions then come from
-/// Newton–Raphson iteration (see `newton`), which replaces each such current by its tangent
+/// Diodes, transistors, and logic gates make the equations nonlinear: each of their currents is a
+/// function of a few control voltages (see `NonlinearModel`). DC and transient solutions then come
+/// from Newton–Raphson iteration (see `newton`), which replaces each such current by its tangent
 /// `Σⱼ Gⱼ · vⱼ − i = Σⱼ Gⱼ · vⱼ,ₖ − I(vₖ)` at the previous iterate vₖ. AC analysis uses the
-/// tangent at the DC operating point.
+/// tangent at the DC operating point. A logic gate's output follows its inputs one propagation delay
+/// later, so in a transient analysis its current also depends on its inputs' recent past.
 public enum Simulator {
     /// Conductance added from every node to ground so that nodes isolated at DC
     /// (e.g. between two capacitors) still have a defined voltage.
@@ -172,6 +174,7 @@ public enum Simulator {
         let initialMode: Mode = settings.initialConditions == .zero ? .zeroInitialState : .dc
         let x0 = try solveReal(netlist, layout: layout, mode: initialMode, time: 0, state: nil)
         var state = layout.reactiveState(from: x0, netlist: netlist)
+        var histories = gateHistories(netlist, layout: layout, from: x0, fromRest: settings.initialConditions == .zero)
 
         // Without nonlinear elements the matrix is constant for a fixed step, so factor it once.
         let mode: Mode = settings.integrationMethod == .trapezoidal ? .trapezoidal(h: h) : .backwardEuler(h: h)
@@ -213,7 +216,7 @@ public enum Simulator {
             } else {
                 x = try nonlinearStep(
                     netlist, layout: layout, method: settings.integrationMethod,
-                    from: previous, state: state, to: t, h: h, depth: 0, matrices: &matrices)
+                    from: previous, state: state, to: t, h: h, depth: 0, matrices: &matrices, histories: &histories)
             }
             previous = x
             state = layout.reactiveState(from: x, netlist: netlist)
@@ -226,25 +229,51 @@ public enum Simulator {
 
     /// One transient step with nonlinear elements: Newton–Raphson from the previous solution `x`. A step that
     /// does not converge is replaced by two half steps (recursively, up to `maxStepSubdivisions`).
+    /// Each solution found is recorded in the logic gates' `histories`.
     private static func nonlinearStep(
         _ netlist: Netlist, layout: Layout, method: SimulationSettings.IntegrationMethod,
         from x: [Double], state: ReactiveState, to t: Double, h: Double, depth: Int,
-        matrices: inout [Int: DenseMatrix<Double>]
+        matrices: inout [Int: DenseMatrix<Double>], histories: inout [Int: GateHistory]
     ) throws -> [Double] {
         let mode: Mode = method == .trapezoidal ? .trapezoidal(h: h) : .backwardEuler(h: h)
         let matrix = matrices[depth] ?? assembleMatrix(netlist, layout: layout, mode: mode)
         matrices[depth] = matrix
         let rhs = assembleRHS(netlist, layout: layout, mode: mode, time: t, state: state)
-        if let next = try newton(netlist, layout: layout, matrix: matrix, rhs: rhs, guess: x, maxIterations: maxStepIterations) {
+        let models = nonlinearModels(netlist, layout: layout, mode: mode, time: t, histories: histories)
+        if let next = try newton(netlist, layout: layout, models: models, matrix: matrix, rhs: rhs, guess: x, maxIterations: maxStepIterations) {
+            recordTargets(next, at: t, netlist: netlist, layout: layout, histories: &histories)
             return next
         }
         guard depth < maxStepSubdivisions else { throw SimulationError.noConvergence(time: t) }
         let middle = try nonlinearStep(
             netlist, layout: layout, method: method, from: x, state: state,
-            to: t - h / 2, h: h / 2, depth: depth + 1, matrices: &matrices)
+            to: t - h / 2, h: h / 2, depth: depth + 1, matrices: &matrices, histories: &histories)
         return try nonlinearStep(
             netlist, layout: layout, method: method, from: middle, state: layout.reactiveState(from: middle, netlist: netlist),
-            to: t, h: h / 2, depth: depth + 1, matrices: &matrices)
+            to: t, h: h / 2, depth: depth + 1, matrices: &matrices, histories: &histories)
+    }
+
+    /// The target of each logic gate (see `LogicGateModel`) at the solution `x0` at t = 0, as the
+    /// start of its history. Before t = 0, a gate starting from rest was at 0 V, and one starting
+    /// from the DC operating point was at its target.
+    static func gateHistories(_ netlist: Netlist, layout: Layout, from x0: [Double], fromRest: Bool) -> [Int: GateHistory] {
+        var histories: [Int: GateHistory] = [:]
+        for index in layout.nonlinear where netlist.elements[index].kind == .logicGate {
+            let element = netlist.elements[index]
+            let target = element.gate.target(element.inputNodes.map { layout.voltage(x0, $0) }).voltage
+            histories[index] = GateHistory(initial: fromRest ? 0 : target)
+        }
+        recordTargets(x0, at: 0, netlist: netlist, layout: layout, histories: &histories)
+        return histories
+    }
+
+    /// Records each logic gate's target at the solution `x` at time `t`.
+    static func recordTargets(_ x: [Double], at t: Double, netlist: Netlist, layout: Layout, histories: inout [Int: GateHistory]) {
+        for index in histories.keys {
+            let element = netlist.elements[index]
+            let target = element.gate.target(element.inputNodes.map { layout.voltage(x, $0) }).voltage
+            histories[index]!.record(target, at: t, delay: element.gate.delay)
+        }
     }
 
     // MARK: AC sweep
@@ -335,6 +364,12 @@ public enum Simulator {
             case .diode, .bjt, .mosfet:
                 matrix.stampNonlinear(element, layout: layout, branch: layout.branch[index]!, slopes: slopes[index].map {
                     $0.map { $0.map { Complex($0) } }
+                })
+            case .logicGate:
+                // The propagation delay shifts the inputs' effect in phase by e^(−jω·t_pd).
+                let lag = Complex(magnitude: 1, phase: -omega * element.gate.delay)
+                matrix.stampNonlinear(element, layout: layout, branch: layout.branch[index]!, slopes: slopes[index].map {
+                    $0.map { row in row.enumerated().map { j, slope in j == 0 ? Complex(slope) : Complex(slope) * lag } }
                 })
             case .opAmp:
                 matrix.stampOpAmp(a, b, layout.row(element.outputNode), layout.branch[index]!, gain: Complex(element.value))
@@ -434,7 +469,8 @@ public enum Simulator {
         let matrix = assembleMatrix(netlist, layout: layout, mode: mode)
         let rhs = assembleRHS(netlist, layout: layout, mode: mode, time: time, state: state)
         if !layout.nonlinear.isEmpty {
-            return try solveNonlinear(netlist, layout: layout, matrix: matrix, rhs: rhs)
+            let models = nonlinearModels(netlist, layout: layout, mode: mode, time: time, histories: nil)
+            return try solveNonlinear(netlist, layout: layout, models: models, matrix: matrix, rhs: rhs)
         }
         do {
             return try LUFactorization(matrix).solve(rhs)
@@ -443,23 +479,50 @@ public enum Simulator {
         }
     }
 
-    // MARK: - Newton–Raphson (diodes and transistors)
+    // MARK: - Newton–Raphson (diodes, transistors, and logic gates)
+
+    /// The model of each nonlinear element, in `layout.nonlinear` order, for a solution at `time` in
+    /// `mode`. A logic gate's output drives toward its target one propagation delay ago (see
+    /// `LogicGateModel`): at DC the target now; from rest, 0 V; and in a time step of h, the target
+    /// recorded in its history at `time` − t_pd. When the delay is shorter than the step, that time
+    /// falls inside the step, between the previous time point and the present one, whose target
+    /// depends on the unknown inputs.
+    static func nonlinearModels(
+        _ netlist: Netlist, layout: Layout, mode: Mode, time: Double, histories: [Int: GateHistory]?
+    ) -> [any NonlinearModel] {
+        layout.nonlinear.map { index in
+            let element = netlist.elements[index]
+            guard element.kind == .logicGate else { return element.nonlinearModel! }
+            let gate = element.gate
+            switch mode {
+            case .dc:
+                return gate.step(hold: 0, drive: 1)
+            case .zeroInitialState:
+                return gate.step(hold: 0, drive: gate.delay > 0 ? 0 : 1)
+            case let .backwardEuler(h), let .trapezoidal(h):
+                let history = histories?[index] ?? GateHistory(initial: 0)
+                if gate.delay >= h { return gate.step(hold: history.target(at: time - gate.delay), drive: 0) }
+                let fraction = gate.delay / h
+                return gate.step(hold: fraction * history.target(at: time - h), drive: 1 - fraction)
+            }
+        }
+    }
 
     /// A DC-like solution with nonlinear elements: Newton–Raphson from zero. If that does not settle, the sources
     /// are ramped up from zero instead (source stepping), each solution the start of the next.
     /// The right-hand side holds only source values here, so scaling it scales the sources.
     private static func solveNonlinear(
-        _ netlist: Netlist, layout: Layout, matrix: DenseMatrix<Double>, rhs: [Double]
+        _ netlist: Netlist, layout: Layout, models: [any NonlinearModel], matrix: DenseMatrix<Double>, rhs: [Double]
     ) throws -> [Double] {
         let zero = Array(repeating: 0.0, count: layout.size)
-        if let x = try newton(netlist, layout: layout, matrix: matrix, rhs: rhs, guess: zero, maxIterations: maxOperatingPointIterations) {
+        if let x = try newton(netlist, layout: layout, models: models, matrix: matrix, rhs: rhs, guess: zero, maxIterations: maxOperatingPointIterations) {
             return x
         }
         var x = zero, scale = 0.0, increment = 0.1
         while scale < 1 {
             let target = min(1, scale + increment)
             let scaled = rhs.map { $0 * target }
-            if let next = try newton(netlist, layout: layout, matrix: matrix, rhs: scaled, guess: x, maxIterations: maxOperatingPointIterations) {
+            if let next = try newton(netlist, layout: layout, models: models, matrix: matrix, rhs: scaled, guess: x, maxIterations: maxOperatingPointIterations) {
                 x = next
                 scale = target
                 increment = min(2 * increment, 0.25)
@@ -472,14 +535,15 @@ public enum Simulator {
     }
 
     /// Solves the system whose linear part is `matrix`·x = `rhs`, with each nonlinear current replaced
-    /// by its tangent at the previous iterate, until successive iterates agree. Returns nil if they
-    /// do not within `maxIterations`.
+    /// by its tangent at the previous iterate, until successive iterates agree. `models` are the
+    /// nonlinear elements' models (see `nonlinearModels`). Returns nil if the iterates do not agree
+    /// within `maxIterations`.
     static func newton(
-        _ netlist: Netlist, layout: Layout, matrix: DenseMatrix<Double>, rhs: [Double],
+        _ netlist: Netlist, layout: Layout, models: [any NonlinearModel], matrix: DenseMatrix<Double>, rhs: [Double],
         guess: [Double], maxIterations: Int
     ) throws -> [Double]? {
-        let devices = layout.nonlinear.map { index in
-            (element: netlist.elements[index], model: netlist.elements[index].nonlinearModel!, branch: layout.branch[index]!)
+        let devices = zip(layout.nonlinear, models).map { index, model in
+            (element: netlist.elements[index], model: model, branch: layout.branch[index]!)
         }
         func controls(_ x: [Double], _ element: NetlistElement) -> [Double] {
             element.controlNodes.map { layout.voltage(x, $0.0) - layout.voltage(x, $0.1) }
@@ -544,7 +608,7 @@ public enum Simulator {
         /// follows its collector current.
         let branch: [Int?]
         let size: Int
-        /// Indices of the nonlinear elements (diodes and transistors) among the netlist elements.
+        /// Indices of the nonlinear elements (diodes, transistors, and logic gates) among the netlist elements.
         let nonlinear: [Int]
 
         init(_ netlist: Netlist) {
