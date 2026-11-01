@@ -11,6 +11,7 @@ public enum Tutorial {
         diode, rectifier, transistorSwitch, transistorBias, mosfet,
         invertingAmplifier, nonInvertingAmplifier,
         logicGates, nandUniversal, binaryAddition, srLatch, propagationDelay, cmosGates,
+        comparator, timer, oneShot, regulator,
     ]
 
     public static func lesson(withID id: String) -> Lesson? {
@@ -1151,6 +1152,160 @@ public enum Tutorial {
             starter: starter.circuit,
             solution: DiveInCircuits.cmosGate(.nand))
     }
+
+    // MARK: - Integrated Circuits
+
+    static var comparator: Lesson {
+        Lesson(
+            id: "comparator", chapter: "Integrated Circuits", title: "The Comparator",
+            introduction: """
+                A **comparator** answers one question: is V+ above V−? If it is, the output is high; if not, \
+                low. Inside, it's much like an op-amp without the feedback: its enormous gain slams the output \
+                against one supply or the other. Like a logic gate's, its supply is implicit here: its output \
+                swings from 0 V to 5 V. Press **K** to place one.
+
+                This one compares V(in) with a 2.5 V reference. But the input is noisy: a 1 kHz sine with a \
+                small, fast wiggle on it. Each time the sine passes 2.5 V, the noise carries it back and forth \
+                across the threshold, and the output **chatters**: it switches several times instead of once.
+
+                The cure is **hysteresis**: two thresholds instead of one. Feed some of the output back to the \
+                + input through a resistor R2. While the output is high, it pulls V+ up, so the input must fall \
+                to a lower threshold before the output switches low, and the other way around. A comparator \
+                with hysteresis is a **Schmitt trigger**. With an output swing of 5 V, its thresholds are
+
+                > ΔV = 5 V · R1 / R2
+
+                apart, centered on the reference.
+                """,
+            challenge: "Add hysteresis, so that the output switches only once each way per cycle of the input.",
+            goals: [
+                .frequency("out", after: 1e-3, .near(1e3, tolerance: 0.05), stopTime: 3e-3),
+            ],
+            hints: [
+                "The noise swings 0.4 V from peak to peak, so the thresholds must be more than 0.4 V apart.",
+                "Connect R2 from the output to the + input, at the right end of R1. A wire from R1's right pin down and around to the output works.",
+                "5 V · R1 / R2 > 0.4 V makes R2 less than 125 kΩ. Too small, though, and the thresholds move past the input's peaks.",
+            ],
+            answer: """
+                R2 = 100 kΩ from the output to the + input puts the thresholds 0.5 V apart, at 2.25 V and \
+                2.75 V: wider than the noise, so each crossing switches the output once. Plot V(in) and V(out): \
+                the output rises as the input passes 2.75 V on its way up, and falls as it passes 2.25 V on \
+                its way down.
+                """,
+            starter: Bench.schmittTrigger(feedback: nil),
+            solution: Bench.schmittTrigger(feedback: 100e3))
+    }
+
+    static var timer: Lesson {
+        Lesson(
+            id: "555-timer", chapter: "Integrated Circuits", title: "The 555 Timer",
+            introduction: """
+                The **555 timer** is one of the most popular chips ever made. Inside are two comparators and \
+                a latch. The **trigger** comparator sets the latch when TRIG falls below ⅓ of the supply, and \
+                the **threshold** comparator resets it when THR rises above ⅔. While the latch is set, the \
+                output is high. While it is reset, the output is low, and the **discharge** pin, DIS, \
+                connects to ground.
+
+                Wired like this, it **oscillates**. C1 charges through R1 and R2 until it reaches ⅔ of the \
+                supply. Then DIS turns on and drains C1 through R2 alone, down to ⅓, where the latch is set \
+                again. Each half takes 0.693 RC, so
+
+                > f = 1 / (0.693 · (R1 + 2·R2) · C1) = 1.44 / ((R1 + 2·R2) · C1)
+
+                Plot V(cap) to watch C1 charge and discharge between 1.67 V and 3.33 V. Press **T** to place a \
+                555, and dive into it to see its comparators and latch.
+                """,
+            challenge: "The timer runs at about 680 Hz. Make it oscillate at 1 kHz, keeping C1 at 100 nF.",
+            goals: [
+                .frequency("out", after: 2e-3, .near(1e3, tolerance: 0.05), stopTime: 6e-3, timeStep: 1e-6),
+                .keeps("C1", at: 100e-9, unit: "F"),
+            ],
+            hints: [
+                "Rearrange the formula: R1 + 2·R2 = 1.44 / (f · C1).",
+                "Keep R1 at 1 kΩ and change R2.",
+            ],
+            answer: """
+                R1 + 2·R2 = 1.44 / (1 kHz · 100 nF) = 14.4 kΩ, so with R1 = 1 kΩ, R2 = 6.7 kΩ. The output is \
+                high while C1 charges through R1 and R2, and low while it discharges through R2 alone, so it is \
+                high a little more than half the time: (R1 + R2) / (R1 + 2·R2) = 53 %.
+                """,
+            starter: Bench.astable(r1: 1e3, r2: 10e3, c: 100e-9, stopTime: 6e-3),
+            solution: Bench.astable(r1: 1e3, r2: 6.7e3, c: 100e-9, stopTime: 6e-3))
+    }
+
+    static var oneShot: Lesson {
+        Lesson(
+            id: "one-shot", chapter: "Integrated Circuits", title: "One-Shot Pulses",
+            introduction: """
+                Without R2, the 555 doesn't oscillate; it waits. DIS holds C1 discharged until a low pulse on \
+                TRIG sets the latch. Then the output goes high, DIS lets go, and C1 charges through R1. When \
+                it reaches ⅔ of the supply, the latch resets: the output falls, and DIS discharges C1, ready \
+                for the next trigger.
+
+                This is a **monostable**, or **one-shot**: every trigger, however short, makes one output pulse \
+                of a fixed length. C1 charges from 0 to ⅔ of the supply, which takes ln 3 = 1.1 time constants:
+
+                > T = 1.1 · R1 · C1
+
+                One-shots stretch a brief event, such as a button press, into a pulse long enough to use, and \
+                they ignore the button bouncing during the pulse. Here V2 pulls TRIG low for 0.1 ms at t = 1 ms.
+                """,
+            challenge: "The pulse lasts 1.1 ms. Make it last 10 ms, keeping C1 at 100 nF.",
+            goals: [
+                .pulseWidth("out", after: 0.5e-3, .near(10e-3, tolerance: 0.03), stopTime: 15e-3, timeStep: 2e-6),
+                .keeps("C1", at: 100e-9, unit: "F"),
+            ],
+            hints: [
+                "Solve the formula for R1: R1 = T / (1.1 · C1).",
+                "Hover over the plot to read when V(out) rises and falls.",
+            ],
+            answer: """
+                R1 = 10 ms / (1.1 · 100 nF) = 91 kΩ. The pulse starts with the trigger at 1 ms, and ends at \
+                11 ms, when V(cap) reaches 3.33 V.
+                """,
+            starter: Bench.monostable(r: 10e3, c: 100e-9, stopTime: 15e-3),
+            solution: Bench.monostable(r: 91e3, c: 100e-9, stopTime: 15e-3))
+    }
+
+    static var regulator: Lesson {
+        Lesson(
+            id: "voltage-regulator", chapter: "Integrated Circuits", title: "Voltage Regulators",
+            introduction: """
+                Circuits need a steady supply, but batteries sag as they run down, and rectified supplies \
+                ripple. A **linear regulator** turns a higher, unsteady voltage into a lower, steady one. The \
+                **LM317** is the classic adjustable one: it holds its output 1.25 V above its ADJ pin, whatever \
+                the input does. R1 and R2 divide the output, so that the 1.25 V across R1 sets it:
+
+                > Vout = 1.25 V · (1 + R2 / R1)
+
+                plus a little from the 50 µA that flows out of ADJ, through R2.
+
+                The catch is **dropout**. A regulator can only lower a voltage, and it needs headroom to do it: \
+                an LM317's input must stay about 2 V above its output. Any lower, and it drops out, and the \
+                input's ripple passes straight through. Here the input is 9 V with ± 1 V of ripple, and the \
+                regulator is set to 7.5 V: too high.
+
+                Press **P** to place a regulator. A fixed one like the 7805 works the same way, with ADJ \
+                grounded and a 5 V reference.
+                """,
+            challenge: "Set the regulator to 3.3 V, so that it rides out the ripple.",
+            goals: [
+                .voltage("out", .near(3.3, tolerance: 0.02)),
+                .ripple("out", after: 10e-3, .atMost(10e-3), stopTime: 30e-3),
+                .keeps("R1", at: 240, unit: "Ω"),
+            ],
+            hints: [
+                "Solve the formula for R2: R2 = R1 · (Vout / 1.25 V − 1).",
+                "The input dips to 8 V, so with 2 V of dropout, any output up to 6 V stays steady.",
+            ],
+            answer: """
+                R2 = 240 Ω · (3.3 V / 1.25 V − 1) = 394 Ω; the standard 390 Ω gives 3.30 V, counting the ADJ \
+                current. The input never comes within 2 V of the output, so the ripple disappears. The \
+                regulator turns the difference into heat: (9 V − 3.3 V) · 38 mA = 0.22 W.
+                """,
+            starter: Bench.regulator(r2: 1.2e3),
+            solution: Bench.regulator(r2: 390))
+    }
 }
 
 // MARK: - Layout
@@ -1301,6 +1456,141 @@ struct Bench {
         wire(GridPoint(26, 12), GridPoint(28, 12), GridPoint(28, 9), GridPoint(30, 9))
         wire(GridPoint(34, 8), GridPoint(38, 8))
         label("y", at: GridPoint(37, 8))
+    }
+
+    /// A comparator pointing right with its + input at `plus`, − input two rows up, and output at plus + (4, −1).
+    mutating func comparator(_ name: String, plus: GridPoint) {
+        circuit.components.append(Component(kind: .comparator, name: name, position: plus + GridPoint(2, -1), rotation: 0))
+    }
+
+    /// A 555 timer at `position`: DIS, THR, and TRIG at + (−4, −2), (−4, 0), and (−4, 2), OUT at
+    /// + (4, 0), RESET and VCC at + (−1, −4) and (1, −4), and GND and CTRL at + (−1, 4) and (1, 4).
+    mutating func timer(_ name: String, at position: GridPoint) {
+        circuit.components.append(Component(kind: .timer, name: name, position: position, rotation: 0))
+    }
+
+    /// A voltage regulator at `position`, with its input at + (−3, 0), output at + (3, 0), and ADJ at + (0, 2).
+    mutating func regulator(_ name: String, _ reference: Double, at position: GridPoint) {
+        circuit.components.append(Component(kind: .regulator, name: name, position: position, rotation: 0, value: reference))
+    }
+
+    /// A 555 timer U1 at (20, 10) on a 5 V supply V1, with its supply rail at y = 4, its ground rail
+    /// at y = 16, and its output wired to the label out. RESET is tied to VCC.
+    private mutating func timerOnSupply(rail: Int = 4) {
+        vertical(.voltageSource, "V1", 5, top: GridPoint(2, rail))
+        wire(GridPoint(2, rail), GridPoint(21, rail))
+        wire(GridPoint(2, rail + 4), GridPoint(2, 16), GridPoint(19, 16))
+        ground(at: GridPoint(2, 16))
+        timer("U1", at: GridPoint(20, 10))
+        wire(GridPoint(21, 6), GridPoint(21, rail))
+        wire(GridPoint(19, 6), GridPoint(19, rail))
+        wire(GridPoint(19, 14), GridPoint(19, 16))
+        wire(GridPoint(24, 10), GridPoint(30, 10))
+        label("out", at: GridPoint(28, 10))
+    }
+
+    /// A 555 astable: R1 from the supply to DIS, R2 from DIS to THR and TRIG, and C1 from there,
+    /// the net cap, to ground. It oscillates at f = 1 / (ln 2 · (R1 + 2·R2) · C1).
+    static func astable(r1: Double, r2: Double, c: Double, stopTime: Double) -> Circuit {
+        var b = Bench()
+        b.timerOnSupply()
+        b.vertical(.resistor, "R1", r1, top: GridPoint(12, 4))
+        b.wire(GridPoint(12, 8), GridPoint(16, 8))
+        b.vertical(.resistor, "R2", r2, top: GridPoint(12, 8))
+        b.wire(GridPoint(12, 12), GridPoint(16, 12))
+        b.wire(GridPoint(16, 10), GridPoint(16, 12))
+        b.wire(GridPoint(12, 12), GridPoint(8, 12))
+        b.vertical(.capacitor, "C1", c, top: GridPoint(8, 12))
+        b.label("cap", at: GridPoint(9, 12))
+        b.circuit.simulation.analysis = .transient
+        b.circuit.simulation.stopTime = stopTime
+        return b.circuit
+    }
+
+    /// A 555 monostable: R1 from the supply to DIS and THR, the net cap, and C1 from there to
+    /// ground. V2 pulls TRIG low for 100 µs at 1 ms, which starts a pulse of 1.1 · R1 · C1.
+    static func monostable(r: Double, c: Double, stopTime: Double) -> Circuit {
+        var b = Bench()
+        b.timerOnSupply(rail: 3)
+        b.vertical(.resistor, "R1", r, top: GridPoint(14, 3))
+        b.wire(GridPoint(14, 7), GridPoint(14, 8), GridPoint(16, 8))
+        b.wire(GridPoint(16, 8), GridPoint(16, 10))
+        b.label("cap", at: GridPoint(14, 8))
+        b.horizontal(.capacitor, "C1", c, left: GridPoint(12, 10))
+        b.ground(at: GridPoint(12, 10))
+        var trigger = SourceWaveform(shape: .pulse)
+        trigger.initialValue = 5
+        trigger.delay = 1e-3
+        trigger.pulseWidth = 100e-6
+        trigger.period = 1
+        b.vertical(.voltageSource, "V2", 0, top: GridPoint(6, 12), waveform: trigger)
+        b.wire(GridPoint(6, 12), GridPoint(16, 12))
+        b.label("trig", at: GridPoint(9, 12))
+        b.circuit.simulation.analysis = .transient
+        b.circuit.simulation.stopTime = stopTime
+        return b.circuit
+    }
+
+    /// A comparator U1 that compares the net in, a 1 kHz sine of 2.5 ± 2 V with 20 kHz noise of
+    /// ± 0.2 V on it, through R1 with the 2.5 V reference V3. With `feedback`, R2 feeds the output
+    /// back to the + input, for hysteresis.
+    static func schmittTrigger(feedback: Double?) -> Circuit {
+        var b = Bench()
+        var noise = SourceWaveform(shape: .sine)
+        noise.amplitude = 0.2
+        noise.frequency = 20e3
+        var signal = SourceWaveform(shape: .sine)
+        signal.amplitude = 2
+        b.vertical(.voltageSource, "V2", 0, top: GridPoint(4, 10), waveform: noise)
+        b.vertical(.voltageSource, "V1", 2.5, top: GridPoint(4, 14), waveform: signal)
+        b.ground(at: GridPoint(4, 18))
+        b.wire(GridPoint(4, 10), GridPoint(14, 10))
+        b.label("in", at: GridPoint(7, 10))
+        b.horizontal(.resistor, "R1", 10e3, left: GridPoint(14, 10))
+        b.wire(GridPoint(18, 10), GridPoint(20, 10))
+        var reference = SourceWaveform()
+        reference.acMagnitude = 0
+        b.vertical(.voltageSource, "V3", 2.5, top: GridPoint(11, 4), waveform: reference)
+        b.ground(at: GridPoint(11, 8))
+        b.wire(GridPoint(11, 4), GridPoint(20, 4), GridPoint(20, 8))
+        b.label("ref", at: GridPoint(17, 4))
+        b.comparator("U1", plus: GridPoint(20, 10))
+        b.wire(GridPoint(24, 9), GridPoint(30, 9))
+        b.label("out", at: GridPoint(28, 9))
+        if let feedback {
+            b.wire(GridPoint(18, 10), GridPoint(18, 13))
+            b.horizontal(.resistor, "R2", feedback, left: GridPoint(18, 13))
+            b.wire(GridPoint(22, 13), GridPoint(26, 13), GridPoint(26, 9))
+        }
+        b.circuit.simulation.analysis = .transient
+        b.circuit.simulation.stopTime = 3e-3
+        return b.circuit
+    }
+
+    /// An LM317 regulator U1 fed from V1, 9 V with a ripple of ± 1 V at 100 Hz, driving the load
+    /// RL. R1 from its output to ADJ and R2 from ADJ to ground set V(out) = 1.25 V · (1 + R2/R1) + I_adj · R2.
+    static func regulator(r2: Double) -> Circuit {
+        var b = Bench()
+        var ripple = SourceWaveform(shape: .sine)
+        ripple.amplitude = 1
+        ripple.frequency = 100
+        b.vertical(.voltageSource, "V1", 9, top: GridPoint(4, 6), waveform: ripple)
+        b.wire(GridPoint(4, 6), GridPoint(10, 6))
+        b.label("in", at: GridPoint(7, 6))
+        b.regulator("U1", 1.25, at: GridPoint(13, 6))
+        b.wire(GridPoint(16, 6), GridPoint(28, 6))
+        b.label("out", at: GridPoint(24, 6))
+        b.vertical(.resistor, "R1", 240, top: GridPoint(20, 6))
+        b.wire(GridPoint(20, 10), GridPoint(13, 10))
+        b.wire(GridPoint(13, 8), GridPoint(13, 10))
+        b.vertical(.resistor, "R2", r2, top: GridPoint(13, 10))
+        b.vertical(.resistor, "RL", 100, top: GridPoint(28, 6))
+        b.wire(GridPoint(4, 10), GridPoint(4, 14), GridPoint(28, 14))
+        b.wire(GridPoint(28, 10), GridPoint(28, 14))
+        b.ground(at: GridPoint(4, 14))
+        b.circuit.simulation.analysis = .transient
+        b.circuit.simulation.stopTime = 30e-3
+        return b.circuit
     }
 
     /// Wires through `points` in turn.

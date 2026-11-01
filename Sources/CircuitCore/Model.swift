@@ -12,7 +12,10 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
     case voltageSource
     case currentSource
     case opAmp
+    case comparator
     case logicGate
+    case timer
+    case regulator
     case ground
     case netLabel
 
@@ -27,7 +30,10 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
         case .voltageSource: "Voltage Source"
         case .currentSource: "Current Source"
         case .opAmp: "Op-Amp"
+        case .comparator: "Comparator"
         case .logicGate: "Logic Gate"
+        case .timer: "555 Timer"
+        case .regulator: "Voltage Regulator"
         case .ground: "Ground"
         case .netLabel: "Net Label"
         }
@@ -44,23 +50,24 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
         case .mosfet: "M"
         case .voltageSource: "V"
         case .currentSource: "I"
-        case .opAmp, .logicGate: "U"
+        case .opAmp, .comparator, .logicGate, .timer, .regulator: "U"
         case .ground: "GND"
         case .netLabel: "net"
         }
     }
 
     /// Unit symbol of the component's primary value. A diode's value is its saturation current,
-    /// a BJT's its current gain β, a MOSFET's its threshold voltage, an op-amp's its gain, and a
-    /// logic gate's its supply voltage.
+    /// a BJT's its current gain β, a MOSFET's its threshold voltage, an op-amp's its gain, a
+    /// comparator's or logic gate's its supply voltage, and a voltage regulator's its reference
+    /// voltage. A 555 timer has no value: its supply is its VCC pin.
     public var unitSymbol: String {
         switch self {
         case .resistor: "Ω"
         case .capacitor: "F"
         case .inductor: "H"
-        case .voltageSource, .mosfet, .logicGate: "V"
+        case .voltageSource, .mosfet, .comparator, .logicGate, .regulator: "V"
         case .currentSource, .diode: "A"
-        case .bjt, .opAmp, .ground, .netLabel: ""
+        case .bjt, .opAmp, .timer, .ground, .netLabel: ""
         }
     }
 
@@ -75,8 +82,9 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
         case .voltageSource: 5
         case .currentSource: 1e-3
         case .opAmp: 1e5
-        case .logicGate: 5
-        case .ground, .netLabel: 0
+        case .comparator, .logicGate: 5
+        case .regulator: 1.25
+        case .timer, .ground, .netLabel: 0
         }
     }
 
@@ -86,26 +94,39 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
     /// input (bottom left), pin 1 the inverting input (top left), pin 2 the output. A transistor's
     /// pins are in SPICE order: collector (top right), base (left), emitter (bottom right) for a
     /// BJT; drain, gate, source for a MOSFET. P-type transistors mirror them (see `Component`). A
-    /// logic gate points right like an op-amp, with input A (top left), input B (bottom left), and
-    /// its output last; a NOT gate has one input, in line with its output (see `Component`).
+    /// comparator's pins are an op-amp's. A logic gate points right like an op-amp, with input A
+    /// (top left), input B (bottom left), and its output last; a NOT gate has one input, in line
+    /// with its output (see `Component`). A 555 timer's pins are in the order of its package, 1 to 8:
+    /// GND and CTRL at the bottom, TRIG, THR, and DIS on the left, OUT on the right, and RESET and VCC
+    /// on top. A voltage regulator's input is on the left, its output on the right, and ADJ below.
     public var pinOffsets: [GridPoint] {
         switch self {
         case .ground, .netLabel: [GridPoint(0, 0)]
-        case .opAmp: [GridPoint(-2, 1), GridPoint(-2, -1), GridPoint(2, 0)]
+        case .opAmp, .comparator: [GridPoint(-2, 1), GridPoint(-2, -1), GridPoint(2, 0)]
         case .logicGate: [GridPoint(-2, -1), GridPoint(-2, 1), GridPoint(2, 0)]
+        case .timer:
+            [
+                GridPoint(-1, 4), GridPoint(-4, 2), GridPoint(4, 0), GridPoint(-1, -4),
+                GridPoint(1, 4), GridPoint(-4, 0), GridPoint(-4, -2), GridPoint(1, -4),
+            ]
+        case .regulator: [GridPoint(-3, 0), GridPoint(3, 0), GridPoint(0, 2)]
         case .bjt, .mosfet: [GridPoint(1, -2), GridPoint(-2, 0), GridPoint(1, 2)]
         default: [GridPoint(-2, 0), GridPoint(2, 0)]
         }
     }
 
     /// How messages refer to pin `index` of `count`: "Pin 1", "The anode" of a diode, or "The
-    /// output" of an op-amp or logic gate.
+    /// output" of an op-amp, comparator, logic gate, 555 timer, or voltage regulator.
     public func pinName(_ index: Int, of count: Int) -> String {
         switch self {
         case .diode: ["The anode", "The cathode"][index]
         case .bjt: ["The collector", "The base", "The emitter"][index]
         case .mosfet: ["The drain", "The gate", "The source"][index]
-        case .opAmp: ["The + input", "The − input", "The output"][index]
+        case .opAmp, .comparator: ["The + input", "The − input", "The output"][index]
+        case .timer:
+            ["The GND pin", "The trigger", "The output", "The reset pin", "The control pin", "The threshold pin",
+             "The discharge pin", "The VCC pin"][index]
+        case .regulator: ["The input", "The output", "The ADJ pin"][index]
         case .logicGate where index == count - 1: "The output"
         case .logicGate: count == 2 ? "The input" : ["Input A", "Input B"][index]
         default: "Pin \(index + 1)"
@@ -115,6 +136,9 @@ public enum ComponentKind: String, Codable, CaseIterable, Sendable {
     public var isTransistor: Bool { self == .bjt || self == .mosfet }
 
     public var isSource: Bool { self == .voltageSource || self == .currentSource }
+
+    /// Whether the part has an output pin that may drive just a labeled net, to be observed.
+    public var hasOutput: Bool { [.opAmp, .comparator, .logicGate, .timer, .regulator].contains(self) }
 
     /// Whether the component is a circuit element with a value (as opposed to a connectivity marker).
     public var hasValue: Bool { self != .ground && self != .netLabel }
@@ -246,6 +270,34 @@ public struct TransistorParameters: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Chip parameters
+
+/// A comparator's or voltage regulator's parameters besides its main value (a comparator's supply
+/// voltage, a regulator's reference voltage). Each field applies to one part; the other ignores it.
+public struct ChipParameters: Codable, Hashable, Sendable {
+    public static let defaultComparatorDelay = 100e-9
+    public static let defaultDropout = 2.0
+    public static let defaultAdjustCurrent = 50e-6
+
+    /// Comparator propagation delay t_pd: how long the output lags behind its inputs.
+    public var delay = ChipParameters.defaultComparatorDelay
+    /// Regulator dropout voltage: how far the input must stay above the output to regulate.
+    public var dropout = ChipParameters.defaultDropout
+    /// Regulator ADJ current, flowing out of the ADJ pin, as from an LM317.
+    public var adjustCurrent = ChipParameters.defaultAdjustCurrent
+
+    public init() {}
+
+    /// Missing keys take their defaults, so that parameters added later keep older documents readable.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ChipParameters()
+        delay = try container.decodeIfPresent(Double.self, forKey: .delay) ?? defaults.delay
+        dropout = try container.decodeIfPresent(Double.self, forKey: .dropout) ?? defaults.dropout
+        adjustCurrent = try container.decodeIfPresent(Double.self, forKey: .adjustCurrent) ?? defaults.adjustCurrent
+    }
+}
+
 // MARK: - Schematic objects
 
 public struct Component: Identifiable, Codable, Hashable, Sendable {
@@ -265,6 +317,8 @@ public struct Component: Identifiable, Codable, Hashable, Sendable {
     public var transistor: TransistorParameters?
     /// A logic gate's function and delay; nil for other parts.
     public var logic: LogicParameters?
+    /// A comparator's or voltage regulator's parameters; nil for other parts.
+    public var chip: ChipParameters?
 
     public init(
         id: UUID = UUID(),
@@ -276,7 +330,8 @@ public struct Component: Identifiable, Codable, Hashable, Sendable {
         waveform: SourceWaveform = SourceWaveform(),
         emissionCoefficient: Double? = nil,
         transistor: TransistorParameters? = nil,
-        logic: LogicParameters? = nil
+        logic: LogicParameters? = nil,
+        chip: ChipParameters? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -288,6 +343,7 @@ public struct Component: Identifiable, Codable, Hashable, Sendable {
         self.emissionCoefficient = emissionCoefficient
         self.transistor = transistor ?? (kind.isTransistor ? TransistorParameters() : nil)
         self.logic = logic ?? (kind == .logicGate ? LogicParameters() : nil)
+        self.chip = chip ?? (kind == .comparator || kind == .regulator ? ChipParameters() : nil)
     }
 
     /// Pin locations relative to the origin, before rotation. P-type transistors are drawn upside
@@ -304,10 +360,30 @@ public struct Component: Identifiable, Codable, Hashable, Sendable {
         pinOffsets.map { position + $0.rotated(by: rotation) }
     }
 
-    /// Human-readable value, e.g. "4.7 kΩ", "SIN 1 V 1 kHz", "A = 100k", "Is = 10 fA", or "NAND".
+    /// Human-readable value, e.g. "4.7 kΩ", "SIN 1 V 1 kHz", "A = 100k", "Is = 10 fA", "NAND", or
+    /// "Vref = 1.25 V". A comparator or 555 timer with its defaults has none.
     public var valueDescription: String {
         guard kind.hasValue else { return "" }
         if kind == .opAmp { return "A = \(SIFormat.compact(value))" }
+        if kind == .timer { return "" }
+        if kind == .comparator {
+            let delay = (chip ?? ChipParameters()).delay
+            var parts: [String] = []
+            if value != kind.defaultValue { parts.append(SIFormat.string(value, unit: "V")) }
+            if delay != ChipParameters.defaultComparatorDelay { parts.append("tpd = \(SIFormat.string(delay, unit: "s"))") }
+            return parts.joined(separator: ", ")
+        }
+        if kind == .regulator {
+            let parameters = chip ?? ChipParameters()
+            var parts = ["Vref = \(SIFormat.string(value, unit: "V"))"]
+            if parameters.dropout != ChipParameters.defaultDropout {
+                parts.append("Vdo = \(SIFormat.string(parameters.dropout, unit: "V"))")
+            }
+            if parameters.adjustCurrent != ChipParameters.defaultAdjustCurrent {
+                parts.append("Iadj = \(SIFormat.string(parameters.adjustCurrent, unit: "A"))")
+            }
+            return parts.joined(separator: ", ")
+        }
         if kind == .logicGate {
             let parameters = logic ?? LogicParameters()
             var parts = [parameters.function.displayName]

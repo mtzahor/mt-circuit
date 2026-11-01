@@ -28,6 +28,9 @@ enum SchematicStyle {
     static let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
     static let labelFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
     static let annotationFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .medium)
+    /// Pin names inside a chip's body.
+    static let pinFont = NSFont.systemFont(ofSize: 8.5, weight: .medium)
+    static let chipFont = NSFont.systemFont(ofSize: 13, weight: .bold)
 
     static func point(_ p: GridPoint) -> CGPoint {
         CGPoint(x: CGFloat(p.x) * grid, y: CGFloat(p.y) * grid)
@@ -44,8 +47,10 @@ enum SymbolRenderer {
     static func bodyHalfHeight(_ kind: ComponentKind) -> CGFloat {
         switch kind {
         case .voltageSource, .currentSource: 20
-        case .opAmp: 32
+        case .opAmp, .comparator: 32
         case .logicGate: 26
+        case .timer: 60
+        case .regulator: 20
         case .capacitor: 14
         case .ground: 22
         default: 10
@@ -61,8 +66,10 @@ enum SymbolRenderer {
         case .diode: CGRect(x: -40, y: -12, width: 80, height: 24)
         case .bjt, .mosfet: CGRect(x: -40, y: -40, width: 64, height: 80)
         case .voltageSource, .currentSource: CGRect(x: -40, y: -22, width: 80, height: 44)
-        case .opAmp: CGRect(x: -40, y: -34, width: 80, height: 68)
+        case .opAmp, .comparator: CGRect(x: -40, y: -34, width: 80, height: 68)
         case .logicGate: CGRect(x: -40, y: -26, width: 80, height: 52)
+        case .timer: CGRect(x: -80, y: -80, width: 160, height: 160)
+        case .regulator: CGRect(x: -60, y: -22, width: 120, height: 62)
         case .ground: CGRect(x: -14, y: -3, width: 28, height: 28)
         case .netLabel: CGRect(x: -5, y: -5, width: 10, height: 10)
         }
@@ -116,7 +123,10 @@ enum SymbolRenderer {
             draw(component, in: ctx, color: color, showsValue: !unvalued.contains(component.kind))
         }
 
-        let pins = Set(circuit.components.filter { $0.kind != .netLabel }.flatMap(\.pinPositions))
+        // A 555's CTRL pin may be left open: its divider holds it.
+        let pins = Set(circuit.components.filter { $0.kind != .netLabel }.flatMap { component in
+            component.pinPositions.enumerated().filter { component.kind != .timer || $0.offset != 4 }.map(\.element)
+        })
         for (point, count) in connectivity.connectionCount {
             let p = SchematicStyle.point(point)
             if count >= 3 {
@@ -163,8 +173,11 @@ enum SymbolRenderer {
         if component.kind.isSource {
             drawSourceDecorations(component, at: origin, in: ctx, color: color)
         }
-        if component.kind == .opAmp {
+        if component.kind == .opAmp || component.kind == .comparator {
             drawOpAmpDecorations(component, at: origin, in: ctx, color: color)
+        }
+        if component.kind == .timer || component.kind == .regulator {
+            drawPinNames(component, at: origin, color: color)
         }
         if showText {
             for (text, point) in textLayout(for: component, showsValue: showsValue) { text.draw(at: point) }
@@ -172,9 +185,10 @@ enum SymbolRenderer {
     }
 
     /// Strokes a symbol body in local coordinates (pins at (±40, 0), or (0, 0) for ground;
-    /// an op-amp's or two-input logic gate's inputs are at (−40, ±20) and its output at (40, 0); a
-    /// transistor's control pin is at (−40, 0) and its others at (20, ±40)). P-type transistors are
-    /// drawn upside down. A logic gate is drawn with the shape of its function `gate`.
+    /// an op-amp's, comparator's, or two-input logic gate's inputs are at (−40, ±20) and its output
+    /// at (40, 0); a transistor's control pin is at (−40, 0) and its others at (20, ±40); a 555's
+    /// and a regulator's are at their `ComponentKind.pinOffsets`). P-type transistors are drawn
+    /// upside down. A logic gate is drawn with the shape of its function `gate`.
     static func drawBody(
         _ kind: ComponentKind, in ctx: CGContext, color: NSColor, lineWidth: CGFloat = SchematicStyle.lineWidth,
         polarity: TransistorParameters.Polarity = .n, gate: LogicFunction = .and
@@ -252,7 +266,7 @@ enum SymbolRenderer {
         case .bjt, .mosfet:
             drawTransistor(kind, polarity: polarity, in: ctx, lineWidth: lineWidth)
 
-        case .opAmp:
+        case .opAmp, .comparator:
             line(-40, -20, -28, -20)
             line(-40, 20, -28, 20)
             line(32, 0, 40, 0)
@@ -262,6 +276,26 @@ enum SymbolRenderer {
             ctx.addLine(to: CGPoint(x: -28, y: 32))
             ctx.closePath()
             ctx.strokePath()
+            if kind == .comparator {
+                // A step: the output is either low or high.
+                ctx.setLineWidth(lineWidth * 0.8)
+                ctx.move(to: CGPoint(x: -12, y: 6))
+                ctx.addLine(to: CGPoint(x: -4, y: 6))
+                ctx.addLine(to: CGPoint(x: -4, y: -6))
+                ctx.addLine(to: CGPoint(x: 4, y: -6))
+                ctx.strokePath()
+            }
+
+        case .timer, .regulator:
+            // A box, with a lead from each pin to its edge.
+            let body = kind == .timer ? CGRect(x: -60, y: -60, width: 120, height: 120) : CGRect(x: -40, y: -20, width: 80, height: 40)
+            for offset in kind.pinOffsets {
+                let pin = CGPoint(x: CGFloat(offset.x) * SchematicStyle.grid, y: CGFloat(offset.y) * SchematicStyle.grid)
+                let edge = CGPoint(x: min(max(pin.x, body.minX), body.maxX), y: min(max(pin.y, body.minY), body.maxY))
+                line(pin.x, pin.y, edge.x, edge.y)
+            }
+            ctx.strokePath()
+            ctx.stroke(body)
 
         case .logicGate:
             drawGate(gate, in: ctx)
@@ -413,6 +447,35 @@ enum SymbolRenderer {
         ctx.strokePath()
     }
 
+    /// The pin names inside a 555's or regulator's body, and a 555's number, drawn upright at any rotation.
+    private static func drawPinNames(_ component: Component, at origin: CGPoint, color: NSColor) {
+        let names = component.kind == .timer
+            ? ["GND", "TRIG", "OUT", "RESET", "CTRL", "THR", "DIS", "VCC"]
+            : ["IN", "OUT", "ADJ"]
+        let attributes: [NSAttributedString.Key: Any] = [.font: SchematicStyle.pinFont, .foregroundColor: color.withAlphaComponent(0.7)]
+        for (name, offset) in zip(names, component.kind.pinOffsets) {
+            let pin = CGPoint(x: CGFloat(offset.x) * SchematicStyle.grid, y: CGFloat(offset.y) * SchematicStyle.grid)
+            // From the pin, inward across its lead to just inside the body.
+            let inward = abs(pin.x) > abs(pin.y)
+                ? CGPoint(x: pin.x > 0 ? -1 : 1, y: 0)
+                : CGPoint(x: 0, y: pin.y > 0 ? -1 : 1)
+            let reach: CGFloat = SchematicStyle.grid + 4
+            let anchor = rotate(CGPoint(x: pin.x + inward.x * reach, y: pin.y + inward.y * reach), by: component.rotation)
+            let direction = rotate(inward, by: component.rotation)
+            let text = NSAttributedString(string: name, attributes: attributes)
+            let size = text.size()
+            // The text's edge nearest the pin sits at the anchor.
+            let x = direction.x > 0.5 ? anchor.x : direction.x < -0.5 ? anchor.x - size.width : anchor.x - size.width / 2
+            let y = direction.y > 0.5 ? anchor.y : direction.y < -0.5 ? anchor.y - size.height : anchor.y - size.height / 2
+            text.draw(at: CGPoint(x: origin.x + x, y: origin.y + y))
+        }
+        if component.kind == .timer {
+            let number = NSAttributedString(string: "555", attributes: [.font: SchematicStyle.chipFont, .foregroundColor: color])
+            let size = number.size()
+            number.draw(at: CGPoint(x: origin.x - size.width / 2, y: origin.y - size.height / 2))
+        }
+    }
+
     /// The − and + marks at the inputs, drawn upright so the minus stays horizontal when rotated.
     private static func drawOpAmpDecorations(_ component: Component, at origin: CGPoint, in ctx: CGContext, color: NSColor) {
         ctx.saveGState()
@@ -482,6 +545,33 @@ enum SymbolRenderer {
             // Beside the symbol, clear of the leads that run to its top and bottom pins.
             let x = bounds(of: component).maxX + 4
             return [(name, CGPoint(x: x, y: origin.y - name.size().height)), (value, CGPoint(x: x, y: origin.y))]
+        }
+        if component.kind == .timer {
+            // Off a corner of the body, where no pin is.
+            return [(name, CGPoint(x: origin.x + 64, y: origin.y - 62 - name.size().height)), (value, CGPoint(x: origin.x + 64, y: origin.y - 62))]
+        }
+        if component.kind == .regulator {
+            // On the side away from ADJ: above or below, or beside when the regulator stands upright.
+            let nameSize = name.size(), valueSize = value.size()
+            switch ((component.rotation % 4) + 4) % 4 {
+            case 0:
+                return [
+                    (name, CGPoint(x: origin.x - nameSize.width / 2, y: origin.y - 24 - valueSize.height - nameSize.height)),
+                    (value, CGPoint(x: origin.x - valueSize.width / 2, y: origin.y - 24 - valueSize.height)),
+                ]
+            case 2:
+                return [
+                    (name, CGPoint(x: origin.x - nameSize.width / 2, y: origin.y + 24)),
+                    (value, CGPoint(x: origin.x - valueSize.width / 2, y: origin.y + 24 + nameSize.height)),
+                ]
+            case 1:
+                return [(name, CGPoint(x: origin.x + 24, y: origin.y - nameSize.height)), (value, CGPoint(x: origin.x + 24, y: origin.y))]
+            default:
+                return [
+                    (name, CGPoint(x: origin.x - 24 - nameSize.width, y: origin.y - nameSize.height)),
+                    (value, CGPoint(x: origin.x - 24 - valueSize.width, y: origin.y)),
+                ]
+            }
         }
         let gap = bodyHalfHeight(component.kind) + 4
         if component.rotation.isMultiple(of: 2) {
@@ -577,8 +667,26 @@ enum SymbolRenderer {
                 ctx.strokePath()
             case .place(.logicGate):
                 drawGateIcon(.and, in: ctx)
+            case .place(.timer):
+                ctx.setStrokeColor(NSColor.black.cgColor)
+                ctx.setLineWidth(1.3)
+                ctx.stroke(CGRect(x: -7, y: -7.5, width: 14, height: 15))
+                for y in [-4.5, 0, 4.5] as [CGFloat] {
+                    ctx.move(to: CGPoint(x: -11, y: y)); ctx.addLine(to: CGPoint(x: -7, y: y))
+                    ctx.move(to: CGPoint(x: 7, y: y)); ctx.addLine(to: CGPoint(x: 11, y: y))
+                }
+                ctx.strokePath()
+                let number = NSAttributedString(string: "555", attributes: [
+                    .font: NSFont.systemFont(ofSize: 6, weight: .heavy), .foregroundColor: NSColor.black,
+                ])
+                let size = number.size()
+                number.draw(at: CGPoint(x: -size.width / 2, y: -size.height / 2))
+            case .place(.regulator):
+                ctx.translateBy(x: 0, y: -2.5)
+                ctx.scaleBy(x: 0.21, y: 0.21)
+                drawBody(.regulator, in: ctx, color: .black, lineWidth: 1.5 / 0.21)
             case let .place(kind):
-                let scale: CGFloat = kind.isSource ? 0.36 : kind == .opAmp ? 0.26 : kind.isTransistor ? 0.22 : 0.3
+                let scale: CGFloat = kind.isSource ? 0.36 : kind == .opAmp || kind == .comparator ? 0.26 : kind.isTransistor ? 0.22 : 0.3
                 ctx.scaleBy(x: scale, y: scale)
                 drawBody(kind, in: ctx, color: .black, lineWidth: 1.5 / scale)
                 if kind == .voltageSource {

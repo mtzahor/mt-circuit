@@ -97,11 +97,8 @@ public struct LogicGateModel: Hashable, Sendable {
     /// The level of an input at voltage `v`, between 0 and 1, and its slope dx/dv.
     func level(_ v: Double) -> (x: Double, slope: Double) {
         let w = Self.transitionWidth * supply
-        let z = (v - threshold) / w
-        // Written so that exp never overflows.
-        let e = exp(-abs(z))
-        let x = z >= 0 ? 1 / (1 + e) : e / (1 + e)
-        return (x, x * (1 - x) / w)
+        let (x, slope) = logistic((v - threshold) / w)
+        return (x, slope / w)
     }
 
     /// The voltage the output drives toward at input voltages `inputs`, and its slope with respect to each.
@@ -157,8 +154,9 @@ struct LogicGateStep: NonlinearModel {
 
 // MARK: - Delay
 
-/// A logic gate's target voltage at each time point of a transient analysis, so that its output
-/// can follow the target one propagation delay later.
+/// A logic gate's or comparator's target voltage at each time point of a transient analysis, so
+/// that its output can follow the target one propagation delay later. A 555 timer's history holds
+/// its latch state instead.
 struct GateHistory {
     /// The target before the first time point: 0 V for a gate that starts from rest.
     var initial: Double
@@ -183,6 +181,9 @@ struct GateHistory {
         let fraction = (t - times[low]) / (times[high] - times[low])
         return targets[low] + fraction * (targets[high] - targets[low])
     }
+
+    /// The target at the latest time point recorded.
+    var latest: Double { targets.last ?? initial }
 
     /// Records the target at time `t`, which is later than every time recorded so far, and forgets
     /// the points that lookups of `t − delay` or later no longer need.

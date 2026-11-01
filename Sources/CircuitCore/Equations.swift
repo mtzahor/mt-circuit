@@ -67,12 +67,13 @@ struct SignedText {
 
 /// The equations the simulator solves, written out to read: Kirchhoff's current law at every
 /// node, the law of every voltage source, inductor, capacitor, diode, transistor current, op-amp,
-/// and logic gate, and the resulting Modified Nodal Analysis system A·x = b.
+/// and chip current, and the resulting Modified Nodal Analysis system A·x = b.
 ///
 /// Rows and unknowns are in the simulator's order (node voltages, then branch currents), and the
 /// matrix has exactly the simulator's coefficients, except for the tiny `gmin` conductances. Diodes,
-/// transistors, and logic gates are shown by their tangents, whose slopes change from one Newton
-/// iteration to the next.
+/// transistors, and chips other than op-amps are shown by their tangents, whose slopes change from
+/// one Newton iteration to the next; a 555 timer in a transient analysis by its slopes for a known
+/// latch state.
 public struct CircuitEquations: Sendable {
     public enum Notation: String, CaseIterable, Sendable {
         /// Component names stand for their values: "(V(in) − V(out))/R1".
@@ -91,7 +92,7 @@ public struct CircuitEquations: Sendable {
     public struct Row: Identifiable, Sendable {
         /// Index of the row in the matrix.
         public var id: Int
-        /// "Node out", "Capacitor C1", "Op-Amp U1", "NPN Q1 · collector", or "NAND Gate U2".
+        /// "Node out", "Capacitor C1", "Op-Amp U1", "NPN Q1 · collector", "NAND Gate U2", or "555 Timer U3 · output".
         public var label: String
         /// The node whose currents the row balances; nil for an element's row.
         public var node: Int?
@@ -114,8 +115,8 @@ public struct CircuitEquations: Sendable {
     public var rhs: [MathText]
     /// Conventions and simplifications to know when reading the equations.
     public var notes: [String]
-    /// Value of every matrix entry, leaving out the slopes of diodes, transistors, and logic gates,
-    /// which the simulator adds while solving.
+    /// Value of every matrix entry, leaving out the slopes of diodes, transistors, and chips other
+    /// than op-amps, which the simulator adds while solving.
     var coefficients: [[Coefficient]]
 
     public var size: Int { unknowns.count }
@@ -221,13 +222,15 @@ private struct EquationBuilder {
         MathText(element.currentNames[branch], style: style)
     }
 
-    /// "Capacitor C1", "NPN Q1 · collector", "PMOS M2", "NAND Gate U1": the label of an element's row.
+    /// "Capacitor C1", "NPN Q1 · collector", "PMOS M2", "NAND Gate U1", "555 Timer U2 · output":
+    /// the label of an element's row.
     func label(_ element: NetlistElement, branch: Int) -> String {
         let n = element.transistor.polarity == .n
         switch element.kind {
         case .bjt: return "\(n ? "NPN" : "PNP") \(element.name) · \(branch == 0 ? "collector" : "base")"
         case .mosfet: return "\(n ? "NMOS" : "PMOS") \(element.name)"
         case .logicGate: return "\(element.logic.function.displayName) Gate \(element.name)"
+        case .timer: return "555 Timer \(element.name) · \(["output", "pull-up", "discharge"][branch])"
         default: return "\(element.kind.displayName) \(element.name)"
         }
     }
@@ -415,6 +418,17 @@ private struct EquationBuilder {
                     if nodes.from == node { terms.append(SignedText(text: current(element, branch: branch))) }
                     if nodes.to == node { terms.append(SignedText(negative: true, text: current(element, branch: branch))) }
                 }
+                // A 555's divider, and a regulator's ADJ current.
+                for resistor in element.internalResistors where resistor.from == node || resistor.to == node {
+                    let other = resistor.from == node ? resistor.to : resistor.from
+                    let drop = other == 0 ? voltage(node) : "(" + voltage(node) + " − " + voltage(other) + ")"
+                    terms.append(SignedText(text: drop + "/" + Self.quantity(resistor.resistance, unit: "Ω")))
+                }
+                for source in element.internalCurrents {
+                    let value = adjustCurrent(element)
+                    if source.from == node { terms.append(SignedText(text: value)) }
+                    if source.to == node { terms.append(SignedText(negative: true, text: value)) }
+                }
             }
         }
         return SignedText.sum(terms) + " = 0"
@@ -425,12 +439,19 @@ private struct EquationBuilder {
     /// in transient analysis, or the tangent of a nonlinear current.
     func elementLaw(_ element: NetlistElement, branch: Int) -> (law: MathText, solved: MathText?, note: String?) {
         switch (element.kind, domain) {
-        case (.diode, .ac), (.bjt, .ac), (.mosfet, .ac), (.logicGate, .ac):
+        case (.diode, .ac), (.bjt, .ac), (.mosfet, .ac), (.comparator, .ac), (.logicGate, .ac), (.timer, .ac), (.regulator, .ac):
             let law = current(element, branch: branch) + " = " + SignedText.sum(tangentTerms(element, branch: branch) {
                 controlFactor(element, $0)
             })
             return (law, nil, "small-signal, at the DC operating point")
-        case (.diode, _), (.bjt, _), (.mosfet, _), (.logicGate, _):
+        case (.timer, .transient):
+            // The latch state is known during a step, so the law is linear: the row is its slopes.
+            let current = current(element, branch: branch)
+            let row = SignedText.sum(tangentTerms(element, branch: branch) { controlFactor(element, $0) }
+                + [SignedText(negative: true, text: current)])
+            let note = branch == 0 ? "q is the latch state one propagation delay earlier" : nil
+            return (current + " = " + timerLaw(element, branch: branch), row + " = 0", note)
+        case (.diode, _), (.bjt, _), (.mosfet, _), (.comparator, _), (.logicGate, _), (.timer, _), (.regulator, _):
             let (law, note) = nonlinearLaw(element, branch: branch)
             let current = current(element, branch: branch)
             let tangent = SignedText.sum(tangentTerms(element, branch: branch) { controlFactor(element, $0) }
@@ -474,9 +495,19 @@ private struct EquationBuilder {
 
     // MARK: Nonlinear elements
 
-    /// The right side of a diode's, transistor current's, or logic gate's exact law, and a remark on it.
+    /// The right side of a diode's, transistor current's, or chip current's exact law, and a remark on it.
     func nonlinearLaw(_ element: NetlistElement, branch: Int) -> (law: MathText, note: String?) {
-        if element.kind == .logicGate { return gateLaw(element) }
+        switch element.kind {
+        case .logicGate: return gateLaw(element)
+        case .comparator: return comparatorLaw(element)
+        case .regulator: return regulatorLaw(element)
+        case .timer:
+            let note = branch == 0
+                ? "q = 1 while V(TRIG) < V(CTRL)/2 and V(RESET) > 0.7 V: at DC the latch starts reset"
+                : nil
+            return (timerLaw(element, branch: branch), note)
+        default: break
+        }
         // A P-type transistor's laws are the N-type ones with voltages and currents negated:
         // its controls read V_EB, V_CB, V_SG, V_SD, and its current takes a minus sign.
         let flip = element.kind != .diode && element.transistor.polarity == .p
@@ -547,15 +578,116 @@ private struct EquationBuilder {
                 delayed ? "inputs one propagation delay earlier" : nil)
     }
 
+    /// A comparator's output current, (V(out) − V_DD·step(V(+) − V(−)))/R_out. In a transient
+    /// analysis, the step takes the inputs one propagation delay earlier.
+    func comparatorLaw(_ element: NetlistElement) -> (law: MathText, note: String?) {
+        let model = element.comparator
+        let delayed: Bool = if case .transient = domain { model.delay > 0 } else { false }
+        let delay = deviceParameter("t", "pd", element, value: model.delay, unit: "s")
+        func input(_ node: Int) -> MathText {
+            delayed ? voltage(node, style: .plain) + "(t − " + delay + ")" : voltage(node)
+        }
+        let plus = element.nodeA, minus = element.nodeB
+        let difference: MathText = switch (plus, minus) {
+        case (0, 0): "0"
+        case (_, 0): input(plus)
+        case (0, _): "−" + input(minus)
+        default: input(plus) + " − " + input(minus)
+        }
+        let supply = deviceParameter("V", "DD", element, value: model.supply, unit: "V")
+        let output = element.outputNode == 0 ? MathText("0") : voltage(element.outputNode)
+        let resistance: MathText = notation == .values
+            ? Self.quantity(ComparatorModel.outputResistance, unit: "Ω")
+            : "R" + MathText("out", style: .lowered)
+        return ("(" + output + " − " + supply + "·step(" + difference + "))/" + resistance,
+                delayed ? "inputs one propagation delay earlier" : nil)
+    }
+
+    /// A 555's latch state q, a known value in a transient analysis.
+    func latchState(_ element: NetlistElement) -> MathText {
+        "q" + MathText(element.name, style: .lowered)
+    }
+
+    /// A 555 timer's output current (`branch` 0), its pull-up's current from VCC (1), or its
+    /// discharge current (2), in terms of its latch state q (see `TimerModel`).
+    func timerLaw(_ element: NetlistElement, branch: Int) -> MathText {
+        // Pins: GND 0, OUT 2, DIS 6, VCC 7; voltages are relative to GND.
+        let ground = element.nodes[0]
+        let q = latchState(element)
+        switch branch {
+        case 0:
+            let resistance = deviceParameter("R", "out", element, value: TimerModel.outputResistance, unit: "Ω")
+            return "(" + difference(element.nodes[2], ground) + " − " + q + "·" + differenceFactor(element.nodes[7], ground) + ")/" + resistance
+        case 1:
+            let resistance = deviceParameter("R", "out", element, value: TimerModel.outputResistance, unit: "Ω")
+            return q + "·(" + difference(element.nodes[7], element.nodes[2]) + ")/" + resistance
+        default:
+            let resistance = deviceParameter("R", "dis", element, value: TimerModel.dischargeResistance, unit: "Ω")
+            return "(1 − " + q + ")·" + differenceFactor(element.nodes[6], ground) + "/" + resistance
+        }
+    }
+
+    /// A voltage regulator's pass current, (min(V(ADJ) + V_ref, V(IN) − V_do) − V(OUT))/R_out.
+    func regulatorLaw(_ element: NetlistElement) -> (law: MathText, note: String?) {
+        let (input, output, adjust) = (element.nodes[0], element.nodes[1], element.nodes[2])
+        let reference = deviceParameter("V", "ref", element, value: element.value, unit: "V")
+        let dropout = deviceParameter("V", "do", element, value: element.chip.dropout, unit: "V")
+        let regulated = adjust == 0 ? reference : voltage(adjust) + " + " + reference
+        let limit = input == 0 ? "−" + dropout : voltage(input) + " − " + dropout
+        let set = "min(" + regulated + ", " + limit + ")"
+        let resistance = deviceParameter("R", "out", element, value: RegulatorModel.outputResistance, unit: "Ω")
+        let law = output == 0 ? set + "/" + resistance : "(" + set + " − " + voltage(output) + ")/" + resistance
+        return (law, "while positive: the pass transistor only conducts from IN to OUT")
+    }
+
+    /// A regulator's ADJ current, I_adj or its value.
+    func adjustCurrent(_ element: NetlistElement) -> MathText {
+        deviceParameter("I", "adj", element, value: element.chip.adjustCurrent, unit: "A")
+    }
+
     /// The slopes of a nonlinear element's tangent as symbols: `slopes[i][j]` are the terms of
-    /// ∂I_i/∂V_j, in `NonlinearModel` order. A BJT's are its hybrid-π parameters. A logic gate's
-    /// first slope is its output conductance G_out = 1/R_out, a constant; in an AC sweep its inputs'
-    /// slopes are delayed by its propagation delay.
+    /// ∂I_i/∂V_j, in `NonlinearModel` order; a slope that is always zero has none. A BJT's are its
+    /// hybrid-π parameters. A logic gate's or comparator's first slope is its output conductance
+    /// G_out = 1/R_out, a constant; in an AC sweep its inputs' slopes are delayed by its
+    /// propagation delay. A 555's in a transient analysis are its conductances, times its latch state.
     func slopeTerms(_ element: NetlistElement) -> [[[Term]]] {
         func g(_ name: String) -> Term {
             Term(factor: "g" + MathText("\(name),\(element.name)", style: .lowered))
         }
         switch element.kind {
+        case .comparator:
+            let conductance: MathText = notation == .values
+                ? Self.number(1 / ComparatorModel.outputResistance)
+                : "G" + MathText("out", style: .lowered)
+            let slope = g("in").factor
+            let lagged: Bool = if case .ac = domain { element.comparator.delay > 0 } else { false }
+            guard lagged else { return [[[Term(factor: conductance)], [Term(factor: slope)]]] }
+            let delay = deviceParameter("t", "pd", element, value: element.comparator.delay, unit: "s")
+            return [[[Term(factor: conductance)], [Term(factor: "(" + slope + "·e^(−jω·" + delay + "))")]]]
+        case .regulator:
+            return [[[g("adj")], [g("in")]]]
+        case .timer:
+            // Controls: OUT, VCC, DIS, TRIG, CTRL, and RESET, relative to GND.
+            func conductance(_ resistance: Double, _ role: String) -> MathText {
+                notation == .values ? Self.number(1 / resistance) : "G" + MathText("\(role),\(element.name)", style: .lowered)
+            }
+            let output = conductance(TimerModel.outputResistance, "out")
+            if case .transient = domain {
+                let q = latchState(element)
+                let pulled = output + "·" + q
+                let discharging = conductance(TimerModel.dischargeResistance, "dis") + "·(1 − " + q + ")"
+                return [
+                    [[Term(factor: output)], [Term(negative: true, factor: pulled)], [], [], [], []],
+                    [[Term(negative: true, factor: pulled)], [Term(factor: pulled)], [], [], [], []],
+                    [[], [], [Term(factor: discharging)], [], [], []],
+                ]
+            }
+            let inputs = ["trig", "ctrl", "reset"]
+            return [
+                [[Term(factor: output)], [g("vcc")], []] + inputs.map { [g($0)] },
+                [[g("up,out")], [g("up,vcc")], []] + inputs.map { [g("up,\($0)")] },
+                [[], [], [g("dis,dis")]] + inputs.map { [g("dis,\($0)")] },
+            ]
         case .logicGate:
             let conductance: MathText = notation == .values
                 ? Self.number(1 / LogicGateModel.outputResistance)
@@ -589,7 +721,7 @@ private struct EquationBuilder {
 
     /// Σⱼ slope·control for one current of a nonlinear element, each control written by `control`.
     func tangentTerms(_ element: NetlistElement, branch: Int, control: (Int) -> MathText) -> [SignedText] {
-        slopeTerms(element)[branch].enumerated().map { j, terms in
+        slopeTerms(element)[branch].enumerated().filter { !$0.element.isEmpty }.map { j, terms in
             let c = coefficient(terms)
             return SignedText(negative: c.negative, text: c.text + "·" + control(j))
         }
@@ -620,7 +752,7 @@ private struct EquationBuilder {
                 let source = sourceTerm(element)
                 if let a { rhs[a].append(source.negated) }
                 if let b { rhs[b].append(source) }
-            case .diode, .bjt, .mosfet, .logicGate:
+            case .diode, .bjt, .mosfet, .comparator, .logicGate, .timer, .regulator:
                 // As `stampNonlinear`, with the tangent's slopes and its offset at the previous iterate.
                 let first = layout.branch[index]!
                 let slopes = slopeTerms(element)
@@ -636,9 +768,25 @@ private struct EquationBuilder {
                         }
                     }
                     if case .ac = domain { continue }
+                    // A 555's law is linear for its known latch state, so its rows have no offset.
+                    if element.kind == .timer, case .transient = domain { continue }
                     rhs[k] = tangentTerms(element, branch: branch) { iterate(controlFactor(element, $0, style: .plain)) }
                         .map { Term(negative: $0.negative, factor: $0.text) }
                         + [Term(negative: true, factor: iterate(current(element, branch: branch, style: .plain)))]
+                }
+                // As `assembleMatrix` and `assembleRHS`: a 555's divider and a regulator's ADJ current.
+                for resistor in element.internalResistors {
+                    let g = Term(symbol: "1/" + Self.quantity(resistor.resistance, unit: "Ω"), value: 1 / resistor.resistance)
+                    let (from, to) = (layout.row(resistor.from), layout.row(resistor.to))
+                    add(from, from, g)
+                    add(to, to, g)
+                    add(from, to, g.negated)
+                    add(to, from, g.negated)
+                }
+                for source in element.internalCurrents {
+                    let term = Term(symbol: adjustCurrent(element), value: source.current)
+                    if let from = layout.row(source.from) { rhs[from].append(term.negated) }
+                    if let to = layout.row(source.to) { rhs[to].append(term) }
                 }
             case .voltageSource, .inductor, .capacitor:
                 let k = layout.branch[index]!
@@ -796,10 +944,15 @@ private struct EquationBuilder {
             notes.append("Sources use their AC magnitude and phase.")
         }
         let kinds = Set(netlist.elements.map(\.kind))
+        let isTransient: Bool = if case .transient = domain { true } else { false }
         let deviceNames = [
             kinds.contains(.diode) ? "diodes" : nil,
             kinds.contains(.bjt) || kinds.contains(.mosfet) ? "transistors" : nil,
+            kinds.contains(.comparator) ? "comparators" : nil,
             kinds.contains(.logicGate) ? "logic gates" : nil,
+            // In a transient analysis a 555 is linear for its known latch state.
+            kinds.contains(.timer) && !isTransient ? "555 timers" : nil,
+            kinds.contains(.regulator) ? "voltage regulators" : nil,
         ].compactMap { $0 }
         let devices = deviceNames.count > 2
             ? deviceNames.dropLast().joined(separator: ", ") + ", and " + deviceNames.last!
@@ -845,6 +998,38 @@ private struct EquationBuilder {
                     + "falls inside the step, so f also depends on the present, unknown inputs, in proportion 1 − t_pd/h."
                     + (settings.initialConditions == .zero ? " From rest, every gate's output starts at 0 V and stays there for t_pd." : ""))
             }
+        }
+        if kinds.contains(.comparator) {
+            let resistance = SIFormat.string(ComparatorModel.outputResistance, unit: "Ω")
+            notes.append("A comparator drives its output toward 0 V or its supply V_DD, relative to ground, through R_out = \(resistance): "
+                + "I(U), the current into its output, is (V(out) − V_DD·step(V+ − V−))/R_out. step is 1 while V+ is above V− "
+                + "and 0 while it is below; in between it is 1/(1 + exp(−(V+ − V−)/w)), with w = 1 mV, so the equations stay smooth. "
+                + "Its inputs draw no current, and g_in is ∂I/∂(V+ − V−)."
+                + (isTransient ? " Its output follows its inputs one propagation delay t_pd later, as a logic gate's does." : ""))
+        }
+        if kinds.contains(.timer) {
+            let output = SIFormat.string(TimerModel.outputResistance, unit: "Ω")
+            let discharge = SIFormat.string(TimerModel.dischargeResistance, unit: "Ω")
+            notes.append("A 555 timer's latch state q is 1 while it is set and 0 while it is reset. Set, its output connects to VCC "
+                + "through R_out = \(output); reset, to GND through R_out, and its discharge pin to GND through R_dis = \(discharge). "
+                + "Its voltages are relative to its GND pin. I(U) flows into its output, Iup(U) from VCC into the output's pull-up, "
+                + "and Idis(U) into the discharge pin, each on to GND. Its divider, 5 kΩ from VCC to CTRL and 10 kΩ from CTRL to "
+                + "GND, appears in the node laws.")
+            notes.append(isTransient
+                ? "The trigger comparator sets a 555's latch while V(TRIG) < V(CTRL)/2, and the threshold comparator resets it "
+                    + "while V(THR) > V(CTRL); RESET below 0.7 V resets it whatever the others say. The latch updates after each "
+                    + "time step, and q is its state one propagation delay (100 ns) earlier, or at the previous time point if the "
+                    + "step is longer. That is a known value, so the 555's laws are linear, and its slopes G_out and G_dis are 1/R_out and 1/R_dis."
+                : "At DC a 555's latch starts reset, so q is 1 only while V(TRIG) < V(CTRL)/2 and V(RESET) > 0.7 V, each "
+                    + "rounded over 1 mV so the equations stay smooth. G_out = 1/R_out, and the g are the other slopes ∂I/∂V of its currents.")
+        }
+        if kinds.contains(.regulator) {
+            let resistance = SIFormat.string(RegulatorModel.outputResistance, unit: "Ω")
+            notes.append("A voltage regulator's pass current I(U), from its input to its output, is (V_set − V(out))/R_out with "
+                + "R_out = \(resistance) and V_set = min(V(adj) + V_ref, V(in) − V_do): it holds its output V_ref above its ADJ pin, "
+                + "unless its input is less than the dropout voltage V_do above that. The min is rounded over 50 mV, and the current "
+                + "can't flow backward: it rounds off to 0 over 0.1 mV. Its ADJ current I_adj flows from its input out of its ADJ "
+                + "pin, in the node laws. g_adj and g_in are ∂I/∂V of V(adj) − V(out) and V(in) − V(out).")
         }
         notes.append("The simulator also connects \(SIFormat.string(Simulator.gmin, unit: "S")) (gmin) from every node to ground. It is left out here.")
         return notes
