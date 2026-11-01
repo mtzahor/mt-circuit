@@ -48,7 +48,7 @@ public enum SimulationError: Error, LocalizedError, Equatable {
     case singular(unknown: String)
     case invalidSettings(String)
     case tooManyTimeSteps(Int)
-    /// Newton–Raphson iteration on the diodes, transistors, and logic gates did not settle: at the DC solution when `time` is nil.
+    /// Newton–Raphson iteration on the nonlinear parts did not settle: at the DC solution when `time` is nil.
     case noConvergence(time: Double?)
     case cancelled
 
@@ -63,11 +63,11 @@ public enum SimulationError: Error, LocalizedError, Equatable {
         case let .tooManyTimeSteps(count):
             "The transient analysis would need \(count) time steps. Increase the time step or shorten the stop time."
         case .noConvergence(time: nil):
-            "The equations of the diodes, transistors, and logic gates did not converge to a DC solution. "
+            "The equations of the diodes, transistors, and chips did not converge to a DC solution. "
                 + "Check for extreme component values, or devices connected with no consistent operating point, "
-                + "such as a ring of an odd number of inverters, which can only oscillate."
+                + "such as a ring of an odd number of inverters or a 555 timer wired to oscillate, which have none."
         case let .noConvergence(time?):
-            "The equations of the diodes, transistors, and logic gates did not converge at t = "
+            "The equations of the diodes, transistors, and chips did not converge at t = "
                 + "\(SIFormat.string(time, unit: "s", significantDigits: 4)), even after splitting the time step. "
                 + "Try a smaller time step."
         case .cancelled:
@@ -81,17 +81,19 @@ public enum SimulationError: Error, LocalizedError, Equatable {
 /// Circuit simulator using Modified Nodal Analysis.
 ///
 /// Unknowns are the non-ground node voltages followed by branch currents: one for each
-/// voltage source, inductor, capacitor, diode, op-amp, MOSFET, and logic gate, and two (Ic, Ib) for each BJT.
+/// voltage source, inductor, capacitor, diode, op-amp, MOSFET, comparator, logic gate, and voltage
+/// regulator, two (Ic, Ib) for each BJT, and three for each 555 timer.
 /// Each two-terminal branch obeys `cv · (va − vb) + ci · i = rhs`, which lets every analysis
 /// reuse the same stamp with different coefficients (see `branchEquation`). An op-amp is a
 /// voltage source from its output to ground whose value is `A · (v+ − v−)`; its inputs draw no current.
 ///
-/// Diodes, transistors, and logic gates make the equations nonlinear: each of their currents is a
-/// function of a few control voltages (see `NonlinearModel`). DC and transient solutions then come
-/// from Newton–Raphson iteration (see `newton`), which replaces each such current by its tangent
-/// `Σⱼ Gⱼ · vⱼ − i = Σⱼ Gⱼ · vⱼ,ₖ − I(vₖ)` at the previous iterate vₖ. AC analysis uses the
-/// tangent at the DC operating point. A logic gate's output follows its inputs one propagation delay
-/// later, so in a transient analysis its current also depends on its inputs' recent past.
+/// Diodes, transistors, and chips other than the op-amp make the equations nonlinear: each of their
+/// currents is a function of a few control voltages (see `NonlinearModel`). DC and transient
+/// solutions then come from Newton–Raphson iteration (see `newton`), which replaces each such
+/// current by its tangent `Σⱼ Gⱼ · vⱼ − i = Σⱼ Gⱼ · vⱼ,ₖ − I(vₖ)` at the previous iterate vₖ. AC
+/// analysis uses the tangent at the DC operating point. A comparator's or logic gate's output
+/// follows its inputs one propagation delay later, and a 555's follows its latch, so in a transient
+/// analysis their currents also depend on the recent past.
 public enum Simulator {
     /// Conductance added from every node to ground so that nodes isolated at DC
     /// (e.g. between two capacitors) still have a defined voltage.
@@ -140,7 +142,8 @@ public enum Simulator {
         let noiseFloor = 10 * gmin * max(maxVoltage, 1) * Double(netlist.nodeCount)
         for (index, element) in netlist.elements.enumerated() where abs(point.elementCurrents[index]) < noiseFloor {
             point.elementCurrents[index] = 0
-            point.elementPowers[index] = 0
+            // A 555's divider draws power whatever its output current.
+            if element.internalResistors.isEmpty && element.internalCurrents.isEmpty { point.elementPowers[index] = 0 }
             if element.kind == .resistor { point.elementVoltages[index] = 0 }
         }
         return point
@@ -253,26 +256,43 @@ public enum Simulator {
             to: t, h: h / 2, depth: depth + 1, matrices: &matrices, histories: &histories)
     }
 
-    /// The target of each logic gate (see `LogicGateModel`) at the solution `x0` at t = 0, as the
-    /// start of its history. Before t = 0, a gate starting from rest was at 0 V, and one starting
-    /// from the DC operating point was at its target.
+    /// The target of each logic gate (see `LogicGateModel`) and comparator, and the latch state of
+    /// each 555 timer, at the solution `x0` at t = 0, as the start of its history. Before t = 0, a
+    /// part starting from rest was at 0 V, with its latch reset, and one starting from the DC
+    /// operating point was at its target or latch state there.
     static func gateHistories(_ netlist: Netlist, layout: Layout, from x0: [Double], fromRest: Bool) -> [Int: GateHistory] {
         var histories: [Int: GateHistory] = [:]
-        for index in layout.nonlinear where netlist.elements[index].kind == .logicGate {
-            let element = netlist.elements[index]
-            let target = element.gate.target(element.inputNodes.map { layout.voltage(x0, $0) }).voltage
-            histories[index] = GateHistory(initial: fromRest ? 0 : target)
+        for index in layout.nonlinear where netlist.elements[index].isDelayed {
+            let initial = fromRest ? 0 : delayedValue(netlist.elements[index], at: x0, layout: layout, previous: 0)
+            histories[index] = GateHistory(initial: initial)
         }
         recordTargets(x0, at: 0, netlist: netlist, layout: layout, histories: &histories)
         return histories
     }
 
-    /// Records each logic gate's target at the solution `x` at time `t`.
+    /// Records each logic gate's and comparator's target, and each 555's latch state, at the solution `x` at time `t`.
     static func recordTargets(_ x: [Double], at t: Double, netlist: Netlist, layout: Layout, histories: inout [Int: GateHistory]) {
         for index in histories.keys {
             let element = netlist.elements[index]
-            let target = element.gate.target(element.inputNodes.map { layout.voltage(x, $0) }).voltage
-            histories[index]!.record(target, at: t, delay: element.gate.delay)
+            let value = delayedValue(element, at: x, layout: layout, previous: histories[index]!.latest)
+            histories[index]!.record(value, at: t, delay: element.delay)
+        }
+    }
+
+    /// What the history of a logic gate, comparator, or 555 timer records at the solution `x`: a
+    /// gate's or comparator's target voltage, or a 555's latch state, 1 or 0, after `previous`.
+    static func delayedValue(_ element: NetlistElement, at x: [Double], layout: Layout, previous: Double) -> Double {
+        let v = { (node: Int) in layout.voltage(x, node) }
+        switch element.kind {
+        case .comparator:
+            return element.comparator.target(v(element.nodeA) - v(element.nodeB)).voltage
+        case .timer:
+            // Pins: GND 0, TRIG 1, RESET 3, CTRL 4, THR 5.
+            let pin = { (index: Int) in v(element.nodes[index]) - v(element.nodes[0]) }
+            let set = TimerModel.latch(trigger: pin(1), threshold: pin(5), control: pin(4), reset: pin(3), previous: previous >= 0.5)
+            return set ? 1 : 0
+        default:
+            return element.gate.target(element.inputNodes.map(v)).voltage
         }
     }
 
@@ -361,13 +381,17 @@ public enum Simulator {
             case .capacitor:
                 let k = layout.branch[index]!
                 matrix.stampBranch(a, b, k, cv: Complex(0, omega * element.value), ci: Complex(-1))
-            case .diode, .bjt, .mosfet:
+            case .diode, .bjt, .mosfet, .timer, .regulator:
                 matrix.stampNonlinear(element, layout: layout, branch: layout.branch[index]!, slopes: slopes[index].map {
                     $0.map { $0.map { Complex($0) } }
                 })
-            case .logicGate:
+                for resistor in element.internalResistors {
+                    matrix.stampConductance(layout.row(resistor.from), layout.row(resistor.to), Complex(1 / resistor.resistance))
+                }
+            case .comparator, .logicGate:
                 // The propagation delay shifts the inputs' effect in phase by e^(−jω·t_pd).
-                let lag = Complex(magnitude: 1, phase: -omega * element.gate.delay)
+                let delay = element.kind == .logicGate ? element.gate.delay : element.comparator.delay
+                let lag = Complex(magnitude: 1, phase: -omega * delay)
                 matrix.stampNonlinear(element, layout: layout, branch: layout.branch[index]!, slopes: slopes[index].map {
                     $0.map { row in row.enumerated().map { j, slope in j == 0 ? Complex(slope) : Complex(slope) * lag } }
                 })
@@ -439,6 +463,9 @@ public enum Simulator {
             } else if element.nonlinearModel != nil {
                 // The linear part only: `newton` adds the tangent.
                 matrix.stampNonlinear(element, layout: layout, branch: layout.branch[index]!, slopes: nil)
+                for resistor in element.internalResistors {
+                    matrix.stampConductance(layout.row(resistor.from), layout.row(resistor.to), 1 / resistor.resistance)
+                }
             } else if let k = layout.branch[index] {
                 let eq = branchEquation(for: element, index: index, mode: mode, time: 0, state: nil)
                 matrix.stampBranch(a, b, k, cv: eq.cv, ci: eq.ci)
@@ -458,6 +485,10 @@ public enum Simulator {
                 if let b = layout.row(element.nodeB) { rhs[b] += current }
             } else if let k = layout.branch[index] {
                 rhs[k] = branchEquation(for: element, index: index, mode: mode, time: time, state: state).rhs
+            }
+            for source in element.internalCurrents {
+                if let a = layout.row(source.from) { rhs[a] -= source.current }
+                if let b = layout.row(source.to) { rhs[b] += source.current }
             }
         }
         return rhs
@@ -479,31 +510,43 @@ public enum Simulator {
         }
     }
 
-    // MARK: - Newton–Raphson (diodes, transistors, and logic gates)
+    // MARK: - Newton–Raphson (diodes, transistors, and chips)
 
     /// The model of each nonlinear element, in `layout.nonlinear` order, for a solution at `time` in
-    /// `mode`. A logic gate's output drives toward its target one propagation delay ago (see
-    /// `LogicGateModel`): at DC the target now; from rest, 0 V; and in a time step of h, the target
-    /// recorded in its history at `time` − t_pd. When the delay is shorter than the step, that time
-    /// falls inside the step, between the previous time point and the present one, whose target
-    /// depends on the unknown inputs.
+    /// `mode`. A logic gate's or comparator's output drives toward its target one propagation delay
+    /// ago (see `LogicGateModel`): at DC the target now; from rest, 0 V; and in a time step of h,
+    /// the target recorded in its history at `time` − t_pd. When the delay is shorter than the
+    /// step, that time falls inside the step, between the previous time point and the present one,
+    /// whose target depends on the unknown inputs. A 555's output and discharge follow its latch
+    /// state at `time` − t_pd, or at the previous time point when the step is longer (see `TimerModel`).
     static func nonlinearModels(
         _ netlist: Netlist, layout: Layout, mode: Mode, time: Double, histories: [Int: GateHistory]?
     ) -> [any NonlinearModel] {
         layout.nonlinear.map { index in
             let element = netlist.elements[index]
-            guard element.kind == .logicGate else { return element.nonlinearModel! }
-            let gate = element.gate
+            guard element.isDelayed else { return element.nonlinearModel! }
+            let history = histories?[index] ?? GateHistory(initial: 0)
+            if element.kind == .timer {
+                switch mode {
+                case .dc: return TimerModel.step(state: nil)
+                case .zeroInitialState: return TimerModel.step(state: 0)
+                case let .backwardEuler(h), let .trapezoidal(h):
+                    return TimerModel.step(state: history.target(at: time - max(TimerModel.delay, h)))
+                }
+            }
+            let delay = element.delay
+            func step(hold: Double, drive: Double) -> any NonlinearModel {
+                element.kind == .logicGate ? element.gate.step(hold: hold, drive: drive) : element.comparator.step(hold: hold, drive: drive)
+            }
             switch mode {
             case .dc:
-                return gate.step(hold: 0, drive: 1)
+                return step(hold: 0, drive: 1)
             case .zeroInitialState:
-                return gate.step(hold: 0, drive: gate.delay > 0 ? 0 : 1)
+                return step(hold: 0, drive: delay > 0 ? 0 : 1)
             case let .backwardEuler(h), let .trapezoidal(h):
-                let history = histories?[index] ?? GateHistory(initial: 0)
-                if gate.delay >= h { return gate.step(hold: history.target(at: time - gate.delay), drive: 0) }
-                let fraction = gate.delay / h
-                return gate.step(hold: fraction * history.target(at: time - h), drive: 1 - fraction)
+                if delay >= h { return step(hold: history.target(at: time - delay), drive: 0) }
+                let fraction = delay / h
+                return step(hold: fraction * history.target(at: time - h), drive: 1 - fraction)
             }
         }
     }
@@ -608,7 +651,7 @@ public enum Simulator {
         /// follows its collector current.
         let branch: [Int?]
         let size: Int
-        /// Indices of the nonlinear elements (diodes, transistors, and logic gates) among the netlist elements.
+        /// Indices of the nonlinear elements (diodes, transistors, and chips other than op-amps) among the netlist elements.
         let nonlinear: [Int]
 
         init(_ netlist: Netlist) {
@@ -652,13 +695,21 @@ public enum Simulator {
                     branch[index].map { x[$0] } ?? 0
                 }
             }
-            // Power over every current of the element; only a BJT has a second one, its base current.
+            // Power over every current of the element, such as a BJT's base current, and in its internal resistors and currents.
             let powers = netlist.elements.enumerated().map { index, element in
-                element.branchNodes.enumerated().reduce(0.0) { sum, pair in
+                let branches = element.branchNodes.enumerated().reduce(0.0) { sum, pair in
                     let (i, nodes) = pair
                     let current = i == 0 ? currents[index] : x[branch[index]! + i]
                     return sum + current * (voltage(x, nodes.from) - voltage(x, nodes.to))
                 }
+                let resistors = element.internalResistors.reduce(0.0) { sum, resistor in
+                    let drop = voltage(x, resistor.from) - voltage(x, resistor.to)
+                    return sum + drop * drop / resistor.resistance
+                }
+                let sources = element.internalCurrents.reduce(0.0) { sum, source in
+                    sum + source.current * (voltage(x, source.from) - voltage(x, source.to))
+                }
+                return branches + resistors + sources
             }
             return OperatingPoint(nodeVoltages: voltages, elementCurrents: currents, elementVoltages: elementVoltages, elementPowers: powers)
         }

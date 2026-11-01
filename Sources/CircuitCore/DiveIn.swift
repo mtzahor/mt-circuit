@@ -85,8 +85,9 @@ public enum DiveIn {
     public static let urlScheme = "divein"
 
     public static let topics: [DiveInTopic] = [
-        resistor, capacitor, inductor, diode, bjt, mosfet, voltageSource, currentSource, opAmp, logicGate,
-        differentialPair, currentMirror, pushPull,
+        resistor, capacitor, inductor, diode, bjt, mosfet, voltageSource, currentSource, opAmp, comparator, logicGate,
+        timer, regulator,
+        differentialPair, currentMirror, pushPull, schmittTrigger,
         cmosInverter, cmosNAND, cmosNOR, andOr, xorGate, srLatch,
     ]
 
@@ -106,7 +107,10 @@ public enum DiveIn {
         case .voltageSource: "voltage-source"
         case .currentSource: "current-source"
         case .opAmp: "op-amp"
+        case .comparator: "comparator"
         case .logicGate: "logic-gate"
+        case .timer: "timer"
+        case .regulator: "regulator"
         case .ground, .netLabel: nil
         }
         return id.flatMap(topic(withID:))
@@ -520,6 +524,174 @@ public enum DiveIn {
             lesson: "logic-gates")
     }
 
+    static var comparator: DiveInTopic {
+        DiveInTopic(
+            id: "comparator", category: .parts, title: "Comparator",
+            headline: "An op-amp's gain, with nothing to hold it back",
+            figure: .schematic(DiveInCircuits.comparatorFigure, regions: [
+                SchematicRegion("Input stage", parts: ["Q1", "Q2", "Q3", "Q4", "I1"]),
+                SchematicRegion("Gain stage", parts: ["Q5"]),
+                SchematicRegion("Output", parts: ["Q6", "RB"]),
+            ]),
+            sections: [
+                DiveInSection(nil, """
+                    A comparator tells which of two voltages is higher. Its output is high while V+ is above \
+                    V−, and low while it is below: one bit about two analog voltages. Inside, it starts out \
+                    like an [op-amp](divein:op-amp). Point at a stage below to find it in the schematic.
+                    """),
+                DiveInSection("Input stage", region: 0, """
+                    Q1 and Q2 are a [differential pair](divein:differential-pair) sharing the 20 µA of I1, with \
+                    the [current mirror](divein:current-mirror) Q3–Q4 as their load. A few millivolts between \
+                    the inputs unbalance them, and with only transistors for loads, the stage's output, at \
+                    Q2's collector, swings from one extreme to the other.
+                    """),
+                DiveInSection("Gain stage", region: 1, """
+                    Q5 amplifies again. An op-amp has a compensation capacitor here, to stay stable with \
+                    negative feedback, and that capacitor limits how fast its output can move. A comparator is \
+                    never meant to have feedback, so it has none, and its output switches in a fraction of a \
+                    microsecond.
+                    """),
+                DiveInSection("Open-collector output", region: 2, """
+                    When V+ falls below V−, the first stage's output falls, Q5 turns on, and Q5 turns on Q6, \
+                    which pulls the output to ground. When V+ is higher, Q6 turns off and lets go. Q6 can only \
+                    pull down: comparators like the LM393 leave the **pull-up** resistor, RP here, to you. Its \
+                    supply sets the output's high level, so a comparator on 12 V can drive 3.3 V logic, and \
+                    several outputs can share one pull-up, any of them able to pull it low.
+                    """),
+                DiveInSection("Try it", """
+                    Open the circuit: V(in) is a 1 kHz sine that the comparator compares with 2.5 V, and \
+                    V(out) is a square wave. With noise on the input, a comparator chatters at every crossing; \
+                    the cure is a [Schmitt trigger](divein:schmitt-trigger).
+                    """),
+                DiveInSection("In MT Circuit", """
+                    A comparator drives its output toward 0 V or its supply, 5 V by default, through 50 Ω, \
+                    like a logic gate. Its supply is implicit: there are no power pins. Its output swings over \
+                    a few millivolts of input and follows the inputs 100 ns later by default, and its inputs \
+                    draw no current.
+                    """),
+            ],
+            deeper: ["differential-pair", "current-mirror", "schmitt-trigger", "bjt"],
+            circuit: DiveInCircuits.comparatorTest, lesson: "comparator")
+    }
+
+    static var timer: DiveInTopic {
+        DiveInTopic(
+            id: "timer", category: .parts, title: "555 Timer",
+            headline: "Two comparators, a latch, and a switch",
+            figure: .schematic(DiveInCircuits.timerFigure, regions: [
+                SchematicRegion("Divider", parts: ["R1", "R2", "R3"]),
+                SchematicRegion("Comparators", parts: ["U1", "U2"]),
+                SchematicRegion("Latch", parts: ["U3", "U4"]),
+                SchematicRegion("Output", parts: ["U5"]),
+                SchematicRegion("Discharge", parts: ["Q1"]),
+            ]),
+            sections: [
+                DiveInSection(nil, """
+                    The 555 came out in 1972, and by some estimates a billion are still made every year. Its \
+                    25 transistors form the five blocks of this circuit, built here from parts, with the \
+                    555's pins as labels. Point at a block below to find it in the schematic.
+                    """),
+                DiveInSection("Three resistors", region: 0, """
+                    Three equal resistors, 5 kΩ each, divide the supply: ctrl sits at ⅔ of it, and lo at ⅓. \
+                    Both thresholds are fractions of the supply, so the 555's timing hardly depends on it: it \
+                    keeps time on anything from 4.5 V to 16 V. Driving the CTRL pin moves both thresholds.
+                    """),
+                DiveInSection("Two comparators", region: 1, """
+                    [Comparator](divein:comparator) U1 raises r while the threshold pin, thr, is above ⅔ of \
+                    the supply. U2 raises s while the trigger pin, trig, is below ⅓.
+                    """),
+                DiveInSection("A latch", region: 2, """
+                    U3 and U4 are an [SR latch](divein:sr-latch): s sets it, r resets it, and between their \
+                    pulses it remembers. With the two thresholds, that makes the 555 a \
+                    [Schmitt trigger](divein:schmitt-trigger) with very wide hysteresis: once thr has risen past \
+                    ⅔, nothing changes until trig falls below ⅓. If both act at once, the trigger wins: s \
+                    forces qbar low, and qbar is what drives the output.
+                    """),
+                DiveInSection("Output", region: 3, """
+                    U5 inverts qbar into out, which is high while the latch is set. A real 555's output stage \
+                    is a [push-pull pair](divein:push-pull) that can source or sink 200 mA, enough for a relay \
+                    or a small speaker.
+                    """),
+                DiveInSection("Discharge", region: 4, """
+                    While the latch is reset, qbar turns on Q1 through R4. Q1 is a [BJT](divein:bjt) that \
+                    connects dis to ground, and that's what empties the timing capacitor in every 555 circuit.
+                    """),
+                DiveInSection("Try it", """
+                    Open the circuit: it's this 555 in the astable circuit of the tutorial, with RA = 1 kΩ, \
+                    RB = 6.8 kΩ, and C1 = 100 nF, oscillating near 1 kHz. Plot V(thr), V(s), and V(r) to watch \
+                    the comparators fire at 1.67 V and 3.33 V. Its gates and comparators have an implicit \
+                    5 V supply, so it only works on 5 V.
+                    """),
+                DiveInSection("In MT Circuit", """
+                    The 555 timer part works like this circuit, with an output that swings from rail to rail \
+                    through 10 Ω, as a CMOS 555's does; a bipolar NE555's high output is about 1.7 V below VCC. \
+                    Its discharge pin connects to GND through 10 Ω, its RESET pin resets it below 0.7 V, and \
+                    its output follows its latch 100 ns later, or one time step later if the step is longer.
+                    """),
+            ],
+            deeper: ["comparator", "sr-latch", "schmitt-trigger", "push-pull", "bjt"],
+            circuit: DiveInCircuits.timerAstable, lesson: "555-timer")
+    }
+
+    static var regulator: DiveInTopic {
+        DiveInTopic(
+            id: "regulator", category: .parts, title: "Voltage Regulator",
+            headline: "An amplifier that holds its own output steady",
+            figure: .schematic(DiveInCircuits.regulatorFigure, regions: [
+                SchematicRegion("Reference", parts: ["V2"]),
+                SchematicRegion("Error amplifier", parts: ["U1"]),
+                SchematicRegion("Pass transistor", parts: ["Q1"]),
+                SchematicRegion("Divider", parts: ["R1", "R2"]),
+            ]),
+            sections: [
+                DiveInSection(nil, """
+                    A linear regulator is a feedback loop: it measures its output, compares it with a \
+                    reference, and adjusts a transistor until they agree. An LM317's few dozen transistors form \
+                    the three blocks of this circuit, which sets its output with R1 and R2, as in the tutorial. \
+                    Point at a block below to find it in the schematic.
+                    """),
+                DiveInSection("Reference", region: 0, """
+                    V2 stands for a **bandgap reference**: a few transistors whose voltage hardly changes with \
+                    temperature or supply. A [pn junction](divein:diode)'s voltage falls by about 2 mV for each \
+                    degree warmer, while the difference between two junctions carrying different currents \
+                    rises. Added in the right proportion they cancel, at about 1.25 V, near the bandgap of \
+                    silicon. The reference sits on adj, so the regulator holds out 1.25 V above it.
+                    """),
+                DiveInSection("Error amplifier", region: 1, """
+                    U1, an [op-amp](divein:op-amp), compares out with adj plus the reference, and drives the \
+                    pass transistor until they are equal: the same negative feedback as in an amplifier.
+                    """),
+                DiveInSection("Pass transistor", region: 2, """
+                    Q1, a [BJT](divein:bjt) emitter follower, carries the load current from in to out. It drops \
+                    whatever voltage the input has to spare and turns it into heat, (Vin − Vout) · I. That's \
+                    why regulators have heat sinks, and why most electronics now run from switching \
+                    regulators, which waste far less.
+                    """),
+                DiveInSection("Divider", region: 3, """
+                    R1 and R2 divide the output, so that the 1.25 V across R1 sets it:
+
+                    > Vout = 1.25 V · (1 + R2 / R1) = 3.3 V
+                    """),
+                DiveInSection("Dropout", """
+                    The pass transistor needs headroom: its base sits 0.7 V above out, and the circuits that \
+                    drive it need more. An LM317's input must stay about 2 V above its output, or the input's \
+                    ripple passes through. **Low-dropout** regulators (LDOs) use a PNP or p-channel pass \
+                    transistor, which can bring the output within a few tenths of a volt of the input.
+
+                    Open the circuit: the input ripples between 8 V and 10 V, and V(out) holds at 3.3 V. Its \
+                    ideal op-amp can drive Q1's base as far above the input as it likes, so unlike a real \
+                    LM317, it keeps regulating with only a tenth of a volt to spare.
+                    """),
+                DiveInSection("In MT Circuit", """
+                    The voltage regulator part holds its output V_ref above its ADJ pin, 1.25 V by default, \
+                    through 10 mΩ, as long as its input is at least the dropout voltage, 2 V by default, above \
+                    the output. 50 µA flows out of ADJ, and the pass transistor can't carry current backward. \
+                    For a fixed regulator like the 7805, ground ADJ and set V_ref to 5 V.
+                    """),
+            ],
+            deeper: ["op-amp", "bjt", "diode"], circuit: DiveInCircuits.regulatorTest, lesson: "voltage-regulator")
+    }
+
     // MARK: Building blocks
 
     static var differentialPair: DiveInTopic {
@@ -608,6 +780,40 @@ public enum DiveIn {
                     """),
             ],
             deeper: ["bjt", "diode"], circuit: circuit)
+    }
+
+    static var schmittTrigger: DiveInTopic {
+        let circuit = Bench.schmittTrigger(feedback: 100e3)
+        return DiveInTopic(
+            id: "schmitt-trigger", category: .buildingBlocks, title: "Schmitt Trigger",
+            headline: "Two thresholds, so that noise can't flip the output back",
+            figure: .schematic(circuit, regions: [SchematicRegion("Positive feedback", parts: ["R1", "R2"])]),
+            sections: [
+                DiveInSection("Chatter", """
+                    A [comparator](divein:comparator) with one threshold switches every time its input crosses \
+                    it. A slow, noisy input crosses it several times in a row, and the output chatters: the \
+                    circuits after it see a burst of edges where there should be one.
+                    """),
+                DiveInSection("Positive feedback", region: 0, """
+                    R2 feeds some of the output back to the + input. Negative feedback, as in an amplifier, \
+                    pulls a circuit toward balance; positive feedback pushes it away. Once the output switches \
+                    high, it raises V+, which holds it high, and the input must fall past a lower threshold to \
+                    switch it back. Then the output lowers V+ and holds itself low. Between the thresholds, the \
+                    output remembers which one the input crossed last, like a [latch](divein:sr-latch). Here \
+                    they are 5 V · R1 / R2 = 0.5 V apart:
+
+                    > V_up = 2.75 V,   V_down = 2.25 V
+                    """),
+                DiveInSection("Everywhere", """
+                    Schmitt triggers clean up signals from buttons, sensors, and long cables, and many logic \
+                    chips, like the 74HC14, build them into their inputs. The [555 timer](divein:timer) is one \
+                    with very wide hysteresis: its thresholds are ⅓ and ⅔ of its supply.
+
+                    Open the circuit: the input is a 1 kHz sine with 20 kHz noise on it. Delete R2 to see the \
+                    output chatter at each crossing.
+                    """),
+            ],
+            deeper: ["comparator"], circuit: circuit, lesson: "comparator")
     }
 
     // MARK: Logic
@@ -1087,6 +1293,213 @@ enum DiveInCircuits {
         var b = Bench()
         b.xorFromNAND()
         b.countThrough(inputs: 2)
+        return b.circuit
+    }
+
+    // MARK: Chips
+
+    /// A 555 timer built from parts, with its pins as the labels vcc, ctrl, thr, trig, dis, and out.
+    /// The divider R1–R3 holds ctrl at ⅔ of vcc and the net lo at ⅓. Comparator U1 raises r while
+    /// thr is above ctrl, and U2 raises s while trig is below lo. The NOR latch U3–U4 holds q, and
+    /// its qbar drives the output through the inverter U5 and the discharge transistor Q1 through R4.
+    /// The gates and comparators have an implicit 5 V supply.
+    private static func timerParts(_ b: inout Bench) {
+        b.wire(GridPoint(10, 2), GridPoint(13, 2))
+        b.label("vcc", at: GridPoint(13, 2))
+        b.vertical(.resistor, "R1", 5e3, top: GridPoint(10, 2))
+        b.vertical(.resistor, "R2", 5e3, top: GridPoint(10, 6))
+        b.wire(GridPoint(10, 10), GridPoint(10, 14))
+        b.vertical(.resistor, "R3", 5e3, top: GridPoint(10, 14))
+        b.ground(at: GridPoint(10, 18))
+        b.wire(GridPoint(10, 6), GridPoint(16, 6))
+        b.label("ctrl", at: GridPoint(13, 6))
+        b.wire(GridPoint(10, 14), GridPoint(16, 14))
+        b.label("lo", at: GridPoint(13, 14))
+
+        // U1: + is thr, − is ctrl. U2: + is lo, − is trig.
+        b.comparator("U1", plus: GridPoint(16, 8))
+        b.wire(GridPoint(16, 8), GridPoint(13, 8))
+        b.label("thr", at: GridPoint(13, 8))
+        b.comparator("U2", plus: GridPoint(16, 14))
+        b.wire(GridPoint(16, 12), GridPoint(13, 12))
+        b.label("trig", at: GridPoint(13, 12))
+
+        // The latch: U3 = NOR(r, qbar) drives q, U4 = NOR(s, q) drives qbar.
+        b.gate(.nor, "U3", at: GridPoint(26, 8))
+        b.gate(.nor, "U4", at: GridPoint(26, 14))
+        b.wire(GridPoint(20, 7), GridPoint(24, 7))
+        b.label("r", at: GridPoint(21, 7))
+        b.wire(GridPoint(20, 13), GridPoint(24, 13))
+        b.label("s", at: GridPoint(21, 13))
+        b.wire(GridPoint(24, 9), GridPoint(21, 9))
+        b.label("qbar", at: GridPoint(21, 9))
+        b.wire(GridPoint(24, 15), GridPoint(21, 15))
+        b.label("q", at: GridPoint(21, 15))
+        b.wire(GridPoint(28, 8), GridPoint(31, 8))
+        b.label("q", at: GridPoint(31, 8))
+
+        // Output and discharge, both driven by qbar.
+        b.wire(GridPoint(28, 14), GridPoint(32, 14))
+        b.label("qbar", at: GridPoint(29, 14))
+        b.gate(.not, "U5", at: GridPoint(34, 14))
+        b.wire(GridPoint(36, 14), GridPoint(40, 14))
+        b.label("out", at: GridPoint(39, 14))
+        b.wire(GridPoint(30, 14), GridPoint(30, 20))
+        b.horizontal(.resistor, "R4", 10e3, left: GridPoint(30, 20))
+        b.transistor(.bjt, "Q1", at: GridPoint(36, 20))
+        b.wire(GridPoint(37, 18), GridPoint(40, 18))
+        b.label("dis", at: GridPoint(40, 18))
+        b.wire(GridPoint(37, 22), GridPoint(37, 24))
+        b.ground(at: GridPoint(37, 24))
+    }
+
+    /// The 555 of parts alone.
+    static var timerFigure: Circuit {
+        var b = Bench()
+        timerParts(&b)
+        return b.circuit
+    }
+
+    /// The 555 of parts in the astable circuit of the tutorial: RA from vcc to dis, RB from dis to
+    /// thr and trig, and C1 from there to ground, on a 5 V supply.
+    static var timerAstable: Circuit {
+        var b = Bench()
+        timerParts(&b)
+        b.vertical(.voltageSource, "V1", 5, top: GridPoint(2, 2), waveform: quiet)
+        b.label("vcc", at: GridPoint(2, 2))
+        b.ground(at: GridPoint(2, 6))
+        b.wire(GridPoint(40, 18), GridPoint(46, 18))
+        b.label("vcc", at: GridPoint(46, 14))
+        b.vertical(.resistor, "RA", 1e3, top: GridPoint(46, 14))
+        b.vertical(.resistor, "RB", 6.8e3, top: GridPoint(46, 18))
+        b.vertical(.capacitor, "C1", 100e-9, top: GridPoint(46, 22))
+        b.ground(at: GridPoint(46, 26))
+        b.wire(GridPoint(46, 22), GridPoint(52, 22))
+        b.label("thr", at: GridPoint(49, 22))
+        b.label("trig", at: GridPoint(52, 22))
+        b.circuit.simulation.analysis = .transient
+        b.circuit.simulation.stopTime = 6e-3
+        return b.circuit
+    }
+
+    /// A comparator built from transistors, on a 5 V supply at vcc: the differential pair Q1–Q2
+    /// with its tail current I1 and the mirror Q3–Q4, the gain stage Q5, and the open-collector
+    /// output Q6 with its pull-up RP. The + input is Q1's base at (16, 14), the − input Q2's at (26, 14).
+    private static func comparatorTransistors(_ b: inout Bench) {
+        b.transistor(.bjt, "Q3", .p, at: GridPoint(18, 6))
+        b.transistor(.bjt, "Q4", .p, at: GridPoint(28, 6))
+        b.transistor(.bjt, "Q1", at: GridPoint(18, 14))
+        b.transistor(.bjt, "Q2", at: GridPoint(28, 14))
+        b.wire(GridPoint(19, 2), GridPoint(19, 4))
+        b.wire(GridPoint(29, 2), GridPoint(29, 4))
+        b.wire(GridPoint(19, 8), GridPoint(19, 12))
+        b.wire(GridPoint(29, 8), GridPoint(29, 12))
+        // Q3 is diode-connected: both mirror bases join its collector.
+        b.wire(GridPoint(16, 6), GridPoint(16, 9), GridPoint(19, 9))
+        b.wire(GridPoint(26, 6), GridPoint(26, 9), GridPoint(19, 9))
+        b.wire(GridPoint(19, 16), GridPoint(19, 18), GridPoint(29, 18), GridPoint(29, 16))
+        b.vertical(.currentSource, "I1", 20e-6, top: GridPoint(24, 18), waveform: quiet)
+        b.wire(GridPoint(24, 22), GridPoint(24, 24))
+
+        // Q5 turns on when the first stage's output, at Q2's collector, falls; it then drives Q6 on.
+        b.transistor(.bjt, "Q5", .p, at: GridPoint(36, 10))
+        b.wire(GridPoint(29, 10), GridPoint(34, 10))
+        b.wire(GridPoint(37, 2), GridPoint(37, 8))
+        b.wire(GridPoint(37, 12), GridPoint(37, 16), GridPoint(40, 16))
+        b.vertical(.resistor, "RB", 10e3, top: GridPoint(38, 16))
+        b.wire(GridPoint(38, 20), GridPoint(38, 24))
+        b.transistor(.bjt, "Q6", at: GridPoint(42, 16))
+        b.wire(GridPoint(43, 18), GridPoint(43, 24))
+        b.vertical(.resistor, "RP", 10e3, top: GridPoint(43, 2))
+        b.wire(GridPoint(43, 6), GridPoint(43, 14))
+        b.wire(GridPoint(43, 10), GridPoint(47, 10))
+        b.label("out", at: GridPoint(46, 10))
+
+        b.wire(GridPoint(19, 2), GridPoint(43, 2))
+        b.label("vcc", at: GridPoint(33, 2))
+        b.wire(GridPoint(24, 24), GridPoint(43, 24))
+        b.ground(at: GridPoint(33, 24))
+    }
+
+    /// The transistor comparator alone, with its inputs labeled.
+    static var comparatorFigure: Circuit {
+        var b = Bench()
+        comparatorTransistors(&b)
+        b.wire(GridPoint(16, 14), GridPoint(12, 14))
+        b.label("in+", at: GridPoint(12, 14))
+        b.wire(GridPoint(26, 14), GridPoint(24, 14))
+        b.label("in−", at: GridPoint(24, 14))
+        return b.circuit
+    }
+
+    /// The transistor comparator comparing a slow 1 kHz sine, the net in, with the 2.5 V reference V3.
+    static var comparatorTest: Circuit {
+        var b = Bench()
+        comparatorTransistors(&b)
+        b.vertical(.voltageSource, "V1", 2.5, top: GridPoint(4, 14), waveform: sine(2, 1e3))
+        b.ground(at: GridPoint(4, 18))
+        b.wire(GridPoint(4, 14), GridPoint(16, 14))
+        b.label("in", at: GridPoint(8, 14))
+        b.wire(GridPoint(26, 14), GridPoint(24, 14), GridPoint(24, 12))
+        b.label("ref", at: GridPoint(24, 12))
+        b.vertical(.voltageSource, "V3", 2.5, top: GridPoint(8, 22), waveform: quiet)
+        b.label("ref", at: GridPoint(8, 22))
+        b.ground(at: GridPoint(8, 26))
+        b.vertical(.voltageSource, "V2", 5, top: GridPoint(50, 2), waveform: quiet)
+        b.label("vcc", at: GridPoint(50, 2))
+        b.ground(at: GridPoint(50, 6))
+        b.circuit.simulation.analysis = .transient
+        b.circuit.simulation.stopTime = 3e-3
+        return b.circuit
+    }
+
+    /// A linear regulator like the LM317, built from parts: the 1.25 V reference V2 above the net
+    /// adj, the error amplifier U1, and the pass transistor Q1 from in to out. R1 from out to adj and
+    /// R2 from adj to ground set V(out) = 1.25 V · (1 + R2 / R1) = 3.3 V.
+    private static func regulatorParts(_ b: inout Bench) {
+        b.wire(GridPoint(6, 4), GridPoint(20, 4))
+        b.label("in", at: GridPoint(6, 4))
+        b.transistor(.bjt, "Q1", at: GridPoint(19, 8))
+        b.wire(GridPoint(20, 4), GridPoint(20, 6))
+        b.wire(GridPoint(20, 10), GridPoint(30, 10))
+        b.label("out", at: GridPoint(28, 10))
+        b.vertical(.resistor, "R1", 240, top: GridPoint(24, 10))
+        b.vertical(.resistor, "R2", 394, top: GridPoint(24, 14))
+        b.ground(at: GridPoint(24, 18))
+        b.wire(GridPoint(24, 14), GridPoint(22, 14))
+        b.label("adj", at: GridPoint(22, 14))
+
+        b.opAmp("U1", plus: GridPoint(11, 9))
+        b.wire(GridPoint(15, 8), GridPoint(17, 8))
+        b.wire(GridPoint(11, 7), GridPoint(9, 7))
+        b.label("out", at: GridPoint(9, 7))
+        b.wire(GridPoint(11, 9), GridPoint(6, 9))
+        b.vertical(.voltageSource, "V2", 1.25, top: GridPoint(6, 9), waveform: quiet)
+        b.wire(GridPoint(6, 13), GridPoint(6, 15))
+        b.label("adj", at: GridPoint(6, 15))
+    }
+
+    /// The regulator of parts alone.
+    static var regulatorFigure: Circuit {
+        var b = Bench()
+        regulatorParts(&b)
+        return b.circuit
+    }
+
+    /// The regulator of parts fed from V1, 9 V with a ripple of ± 1 V at 100 Hz, driving 100 Ω.
+    static var regulatorTest: Circuit {
+        var b = Bench()
+        regulatorParts(&b)
+        var ripple = sine(1, 100)
+        ripple.acMagnitude = 1
+        b.vertical(.voltageSource, "V1", 9, top: GridPoint(-4, 4), waveform: ripple)
+        b.wire(GridPoint(-4, 4), GridPoint(6, 4))
+        b.ground(at: GridPoint(-4, 8))
+        b.wire(GridPoint(30, 10), GridPoint(34, 10))
+        b.vertical(.resistor, "RL", 100, top: GridPoint(34, 10))
+        b.ground(at: GridPoint(34, 14))
+        b.circuit.simulation.analysis = .transient
+        b.circuit.simulation.stopTime = 30e-3
         return b.circuit
     }
 }

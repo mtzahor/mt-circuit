@@ -45,7 +45,7 @@ extension OpenWindowAction {
 
 /// Colors of a schematic figure's regions, matched by the bars beside the sections about them.
 enum RegionStyle {
-    static let colors: [NSColor] = [.systemBlue, .systemPurple, .systemPink]
+    static let colors: [NSColor] = [.systemBlue, .systemPurple, .systemPink, .systemOrange, .systemTeal]
 
     static func color(_ index: Int) -> NSColor { colors[index % colors.count] }
 }
@@ -115,6 +115,7 @@ private struct TopicIcon: View {
         case "current-mirror": "square.on.square"
         case "push-pull": "arrow.up.arrow.down"
         case "sr-latch": "memorychip"
+        case "schmitt-trigger": "arrow.up.and.down.square"
         default: "square.stack.3d.down.right"
         }
     }
@@ -344,9 +345,9 @@ final class SchematicFigureView: NSView {
     }
 
     private static let regionPadding: CGFloat = 10
-    /// Transistors and diodes keep their default parameters in figures, so their values would only
-    /// add clutter, and a logic gate's shape already shows its function.
-    private static let unvalued: Set<ComponentKind> = [.bjt, .mosfet, .diode, .logicGate]
+    /// Transistors, diodes, and comparators keep their default parameters in figures, so their values
+    /// would only add clutter, and a logic gate's shape already shows its function.
+    private static let unvalued: Set<ComponentKind> = [.bjt, .mosfet, .diode, .comparator, .logicGate]
     private static let titleFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
 
     init(circuit: Circuit, regions: [SchematicRegion]) {

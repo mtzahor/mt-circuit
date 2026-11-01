@@ -1,0 +1,385 @@
+{
+  "components" : [
+    {
+      "id" : "176032BC-DDCF-40C0-98F9-3A78ADB85CAF",
+      "kind" : "voltageSource",
+      "name" : "V2",
+      "position" : {
+        "x" : 4,
+        "y" : 12
+      },
+      "rotation" : 1,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 0.2,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 20000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "sine"
+      }
+    },
+    {
+      "id" : "B3748D7C-3FCE-4A50-B16A-78DD11899477",
+      "kind" : "voltageSource",
+      "name" : "V1",
+      "position" : {
+        "x" : 4,
+        "y" : 16
+      },
+      "rotation" : 1,
+      "value" : 2.5,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 2,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "sine"
+      }
+    },
+    {
+      "id" : "3801228A-F8BD-4A52-8D75-C41E9B3619D2",
+      "kind" : "ground",
+      "name" : "GND",
+      "position" : {
+        "x" : 4,
+        "y" : 18
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "EC1CC529-2DAA-489B-AA77-B70197FA8296",
+      "kind" : "netLabel",
+      "name" : "in",
+      "position" : {
+        "x" : 7,
+        "y" : 10
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "17F218B3-E6CC-4E49-8D0C-7C00BC1BDE32",
+      "kind" : "resistor",
+      "name" : "R1",
+      "position" : {
+        "x" : 16,
+        "y" : 10
+      },
+      "rotation" : 0,
+      "value" : 10000,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "D3FC29DF-6255-420A-BD24-C4F66C522867",
+      "kind" : "voltageSource",
+      "name" : "V3",
+      "position" : {
+        "x" : 11,
+        "y" : 6
+      },
+      "rotation" : 1,
+      "value" : 2.5,
+      "waveform" : {
+        "acMagnitude" : 0,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "E46541A1-2CB7-42C4-B99A-F59D2A17A57E",
+      "kind" : "ground",
+      "name" : "GND",
+      "position" : {
+        "x" : 11,
+        "y" : 8
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "328AADDA-498C-4705-9C17-9FB97A5EE10F",
+      "kind" : "netLabel",
+      "name" : "ref",
+      "position" : {
+        "x" : 17,
+        "y" : 4
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "chip" : {
+        "adjustCurrent" : 5e-05,
+        "delay" : 1e-07,
+        "dropout" : 2
+      },
+      "id" : "3D4026F0-3A2A-4EB8-9A1C-DE21C3CC32DE",
+      "kind" : "comparator",
+      "name" : "U1",
+      "position" : {
+        "x" : 22,
+        "y" : 9
+      },
+      "rotation" : 0,
+      "value" : 5,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "6A31BEC4-1A29-4F47-B13B-63DBBF9CB8F9",
+      "kind" : "netLabel",
+      "name" : "out",
+      "position" : {
+        "x" : 28,
+        "y" : 9
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "3F37646A-842F-4638-ABE9-FBE7E15ADF7C",
+      "kind" : "resistor",
+      "name" : "R2",
+      "position" : {
+        "x" : 20,
+        "y" : 13
+      },
+      "rotation" : 0,
+      "value" : 100000,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    }
+  ],
+  "formatVersion" : 1,
+  "simulation" : {
+    "analysis" : "transient",
+    "initialConditions" : "zero",
+    "integrationMethod" : "trapezoidal",
+    "pointsPerDecade" : 50,
+    "startFrequency" : 1,
+    "stopFrequency" : 1000000,
+    "stopTime" : 0.003,
+    "timeStep" : 0
+  },
+  "wires" : [
+    {
+      "end" : {
+        "x" : 14,
+        "y" : 10
+      },
+      "id" : "610BCF47-6F72-441F-9C8E-0E3FF5DF1168",
+      "start" : {
+        "x" : 4,
+        "y" : 10
+      }
+    },
+    {
+      "end" : {
+        "x" : 20,
+        "y" : 10
+      },
+      "id" : "919F8542-4C4B-41EC-B8FA-1CEE6B891718",
+      "start" : {
+        "x" : 18,
+        "y" : 10
+      }
+    },
+    {
+      "end" : {
+        "x" : 20,
+        "y" : 4
+      },
+      "id" : "BE5C5065-5FCE-4A47-9E5D-34EDC426C223",
+      "start" : {
+        "x" : 11,
+        "y" : 4
+      }
+    },
+    {
+      "end" : {
+        "x" : 20,
+        "y" : 8
+      },
+      "id" : "C27891D4-8B1C-49FC-841A-7250CAA31BA1",
+      "start" : {
+        "x" : 20,
+        "y" : 4
+      }
+    },
+    {
+      "end" : {
+        "x" : 30,
+        "y" : 9
+      },
+      "id" : "45CAEAF9-D271-4443-A612-C1D6EE0B3083",
+      "start" : {
+        "x" : 24,
+        "y" : 9
+      }
+    },
+    {
+      "end" : {
+        "x" : 18,
+        "y" : 13
+      },
+      "id" : "8432C77B-9BE8-4FF1-B419-300F46AA320F",
+      "start" : {
+        "x" : 18,
+        "y" : 10
+      }
+    },
+    {
+      "end" : {
+        "x" : 26,
+        "y" : 13
+      },
+      "id" : "24AB2C04-CFFF-405B-A238-B23B7B6C084E",
+      "start" : {
+        "x" : 22,
+        "y" : 13
+      }
+    },
+    {
+      "end" : {
+        "x" : 26,
+        "y" : 9
+      },
+      "id" : "C6E747F3-306A-46B4-837D-44B8210C7933",
+      "start" : {
+        "x" : 26,
+        "y" : 13
+      }
+    }
+  ]
+}

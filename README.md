@@ -1,13 +1,14 @@
 # MT Circuit
 
-A native macOS schematic editor and circuit simulator for R, L, C, diode, transistor, op-amp, and logic gate circuits.
+A native macOS schematic editor and circuit simulator for R, L, C, diode, transistor, op-amp, logic gate,
+and IC circuits: comparators, 555 timers, and voltage regulators.
 Swift, SwiftUI and AppKit only: no web views, Electron, or third-party dependencies.
 
 ## Features
 
 - **Schematic editor**: place resistors, capacitors, inductors, diodes, BJTs and MOSFETs (N and
-  P type), voltage and current sources, op-amps, logic gates (AND, OR, NOT, NAND, NOR, XOR, XNOR),
-  grounds, and net labels on a snapping grid. Draw L-shaped wires, rotate parts, move them
+  P type), voltage and current sources, op-amps, comparators, logic gates (AND, OR, NOT, NAND, NOR,
+  XOR, XNOR), 555 timers, voltage regulators (LM317 or 78xx), grounds, and net labels on a snapping grid. Draw L-shaped wires, rotate parts, move them
   (attached wires follow), box-select, cut/copy/paste/duplicate, and undo/redo everything.
   Junction dots and red markers on unconnected pins show the connectivity.
 - **Simulation** (Modified Nodal Analysis):
@@ -19,20 +20,23 @@ Swift, SwiftUI and AppKit only: no web views, Electron, or third-party dependenc
 - **Plots** (Swift Charts): pick up to 8 signals, read values with a crosshair synchronized
   across charts, and hover a voltage to highlight its net on the schematic.
 - **Equations tab**: the equations the simulator solves for the current analysis: Kirchhoff's
-  current law at each node, each source, capacitor, inductor, diode, transistor, and op-amp law
-  (with its discretized form in transient analysis, or the tangent of a diode or transistor current
-  for Newton iteration), and the MNA matrix system `A·x = b`. Show them with component names
+  current law at each node, each source, capacitor, inductor, diode, transistor, op-amp, and chip law
+  (with its discretized form in transient analysis, or the tangent of a diode, transistor, or chip
+  current for Newton iteration), and the MNA matrix system `A·x = b`. Show them with component names
   or with values substituted. Hover a row to highlight it in both the equations and the matrix,
   and to highlight its net on the schematic. The equations come from the schematic itself, so
   they are shown even when the simulation fails.
-- **Tutorial** (File ▸ Start Tutorial): twenty-six lessons on electronics fundamentals, from Ohm's
+- **Tutorial** (File ▸ Start Tutorial): thirty lessons on electronics fundamentals, from Ohm's
   law and Kirchhoff's laws through RC and RL transients, filters, resonance, diodes, transistors,
-  op-amps, and digital logic: logic gates, building XOR from NAND gates, a full adder, an SR latch,
-  a ring oscillator, and a NAND gate built from MOSFETs. Each lesson explains a concept, then sets
+  op-amps, digital logic (logic gates, building XOR from NAND gates, a full adder, an SR latch,
+  a ring oscillator, and a NAND gate built from MOSFETs), and integrated circuits: a comparator that
+  needs hysteresis, a 555 timer as an oscillator and as a one-shot, and an LM317 voltage regulator
+  that must ride out its input's ripple. Each lesson explains a concept, then sets
   a challenge on a starting circuit. A side panel lists the challenge's goals (such as
   `V(out) = 3.3 V ± 1 %`, or `y = A XOR B, for every input`), and the app checks them after every
   edit by running the analyses they need, showing the measured value next to each goal. A truth
-  table goal runs a DC analysis for every combination of inputs. Hints, a worked answer, and a solution circuit are available for each lesson.
+  table goal runs a DC analysis for every combination of inputs, and timing goals measure an
+  oscillator's frequency or a pulse's width. Hints, a worked answer, and a solution circuit are available for each lesson.
   Completed lessons are remembered across launches. The lesson is saved with the document, so a
   saved lesson opens in the tutorial again.
 - **Dive In** (`⌘↓`, the inspector's Dive In button, or right-click a part): a window of linked
@@ -44,12 +48,16 @@ Swift, SwiftUI and AppKit only: no web views, Electron, or third-party dependenc
   forming as you raise its gate voltage. A logic gate opens up into the CMOS transistors of its
   function: the inverter, NAND, NOR, AND and OR, and XOR from four NAND gates, plus the SR latch.
   The Logic Gate page shows a gate's transistors as switches that you open and close by setting its
-  inputs. Topics with a circuit open it in a new window to simulate, such as the transistor-level
-  op-amp in an inverting amplifier, and part topics link to their tutorial lesson. Window ▸ Dive In
+  inputs. The 555 timer opens up into its divider, comparators, latch, output, and discharge
+  transistor, built from parts that oscillate when you open the circuit; the comparator into its
+  transistors, with an open-collector output; and the voltage regulator into its bandgap reference,
+  error amplifier, and pass transistor. A Schmitt trigger topic explains hysteresis. Topics with a
+  circuit open it in a new window to simulate, such as the transistor-level op-amp in an inverting
+  amplifier, and part topics link to their tutorial lesson. Window ▸ Dive In
   opens the window without a selection.
 - **Auto-run**: re-simulates after every edit.
 - **Documents**: `.mtcircuit` files (JSON) with standard open, save, autosave, and versions.
-  File ▸ New from Example has fourteen starter circuits, also included in `Examples/`.
+  File ▸ New from Example has eighteen starter circuits, also included in `Examples/`.
 - **SI values**: type `4.7k`, `10u` / `10µ`, `100n`, `2k2`, `1meg`. `m` is milli; `M` or `meg` is mega.
 
 ## Build and run
@@ -81,8 +89,9 @@ System Settings ▸ Privacy & Security ▸ Open Anyway.
 | `D` | Place diode |
 | `Q` `M` | Place BJT, MOSFET (choose N or P type in the inspector) |
 | `V` `I` | Place voltage source, current source |
-| `O` | Place op-amp |
+| `O` `K` | Place op-amp, comparator |
 | `A` | Place logic gate (pick its function in the inspector) |
+| `T` `P` | Place 555 timer, voltage regulator |
 | `G` `N` | Place ground, net label |
 | `Space`, `⌘R`, right-click while placing | Rotate 90° |
 | `⌫` | Delete selection |
@@ -134,6 +143,29 @@ the inputs one propagation delay later (10 ns by default): a pure delay, so a ri
 oscillates at `1 / (2·N·t_pd)`. From rest, gate outputs start at 0 V. An output read as 1 is at
 least 70 % of `V_DD`, and a 0 at most 30 %. `I(U1)` is the current into the output, as for an op-amp.
 
+**Comparators** have an op-amp's pins, and an output like a logic gate's: it drives toward `V_DD` (5 V
+by default) while `V+ > V−`, and toward 0 V while `V+ < V−`, relative to ground, through 50 Ω, one
+propagation delay later (100 ns by default). In between, it follows a logistic curve of `V+ − V−`
+over 1 mV, a gain of 1250 at 5 V. The supply is implicit and the inputs draw no current.
+
+**555 timers** have eight pins, numbered as on the chip: TRIG, THR, and DIS on the left, OUT on the
+right, RESET and VCC on top, and GND and CTRL below. Voltages are relative to GND. Three 5 kΩ
+resistors hold CTRL at ⅔ of VCC (leave it open, or drive it to move the thresholds). The latch sets
+while TRIG is below `V(CTRL)/2`, otherwise resets while THR is above `V(CTRL)`, and resets while RESET
+is below 0.7 V. While set, OUT connects to VCC through 10 Ω; while reset, to GND through 10 Ω, and DIS
+connects to GND through 10 Ω. The output swings from rail to rail, like a CMOS 555's. In a transient
+analysis the latch updates after each time point and the output follows it 100 ns later, or one time
+step later if the step is longer, so timing is exact to within a step; at DC the latch starts reset.
+`I(U1)` is the current into OUT, `Iup(U1)` the current from VCC into the output's pull-up, and
+`Idis(U1)` the current into DIS.
+
+**Voltage regulators** work like an LM317: input on the left, output on the right, and ADJ below.
+The pass transistor holds OUT the reference voltage (1.25 V by default) above ADJ, through 10 mΩ,
+as long as IN is at least the dropout voltage (2 V by default) above OUT, and it only sources
+current. The ADJ current (50 µA by default) flows from IN out of ADJ, so
+`V(out) = 1.25 V · (1 + R2/R1) + I_adj · R2` with the usual divider. For a fixed regulator like the
+7805, ground ADJ and set the reference to 5 V. `I(U1)` is the pass current, from IN to OUT.
+
 ## Project layout
 
 ```
@@ -143,6 +175,7 @@ Sources/CircuitCore/       Platform-independent model and simulation engine
   Simulator.swift          MNA assembly for DC, transient, and AC analyses; Newton–Raphson
   Semiconductors.swift     Diode, BJT, and MOSFET models, and Newton step limiting
   Logic.swift              Logic gate functions and model, and the history behind their delay
+  Chips.swift              Comparator, 555 timer, and voltage regulator models
   Equations.swift          Readable circuit equations and the MNA matrix, for the Equations tab
   LinearAlgebra.swift      Complex numbers and dense LU with partial pivoting
   CircuitEditing.swift     Move / rotate / paste with wire rubber-banding
@@ -168,7 +201,8 @@ Tests/CircuitCoreTests/    Swift Testing tests (results checked against analytic
 ### How the simulator works
 
 Unknowns are the non-ground node voltages, plus one branch current per voltage source,
-inductor, capacitor, diode, op-amp, MOSFET, and logic gate, and two (`Ic`, `Ib`) per BJT. Every two-terminal branch obeys `cv·(va − vb) + ci·i = rhs`,
+inductor, capacitor, diode, op-amp, MOSFET, comparator, logic gate, and voltage regulator, two
+(`Ic`, `Ib`) per BJT, and three per 555 timer. Every two-terminal branch obeys `cv·(va − vb) + ci·i = rhs`,
 so each analysis only changes the coefficients:
 
 | | DC | t = 0 (from rest) | Backward Euler | Trapezoidal | AC |
@@ -180,26 +214,33 @@ An op-amp is a voltage source from its output to ground whose value is `A·(v+ �
 branch row is `vout − A·v+ + A·v− = 0` in every analysis, and its current appears only in the
 output node's row.
 
-Diodes, transistors, and logic gates make the equations nonlinear: each of their currents is a
-function of a few control voltages (a diode's `V`, a BJT's `VBE` and `VBC`, a MOSFET's `VGS` and
-`VDS`, a logic gate's output and input voltages).
+Diodes, transistors, and chips other than op-amps make the equations nonlinear: each of their
+currents is a function of a few control voltages (a diode's `V`, a BJT's `VBE` and `VBC`, a MOSFET's
+`VGS` and `VDS`, a logic gate's output and input voltages, a comparator's output voltage and
+`V+ − V−`, a 555's pin voltages, a regulator's `V(ADJ) − V(OUT)` and `V(IN) − V(OUT)`). A 555's
+divider is stamped like two resistors, and a regulator's ADJ current like a current source.
 DC and transient solutions with them come from Newton–Raphson iteration. Each iteration replaces
 every such current by its tangent at the previous iterate, a branch equation
 `Σⱼ Gⱼ·vⱼ − i = Σⱼ Gⱼ·vⱼ,ₖ − I(vₖ)` with slopes `Gⱼ = ∂I/∂vⱼ` (for a BJT, the hybrid-π
 `g_m`, `g_π`, `g_μ`, `g_o`), and solves the resulting linear system. Iteration stops when successive solutions agree to 1 ppm (plus 1 µV /
 1 pA), with steps across a pn junction above its critical voltage, MOSFET gate and drain voltages, and
-logic inputs that jump across their threshold limited as in SPICE. If the DC solution does
+logic and comparator inputs that jump across their threshold limited as in SPICE. If the DC solution does
 not converge, the sources are ramped up from zero; a transient step that does not converge is
-split in halves, up to 10 times. AC analysis replaces each diode, transistor, and logic gate by its
+split in halves, up to 10 times. AC analysis replaces each nonlinear part by its
 tangent at the DC operating point: its small-signal model.
 
 A logic gate's output drives toward its function of its inputs one propagation delay earlier. In a
 transient analysis, each gate keeps the history of that target over the last `t_pd`, and each time
 step reads it back, interpolating between time points. When `t_pd` is shorter than the step, the
 delayed time falls inside the step, and the target there depends partly on the present, unknown
-inputs, so Newton iteration solves for it.
+inputs, so Newton iteration solves for it. A comparator works the same way.
 
-Transient analysis uses a fixed step. Without diodes, transistors, or logic gates the matrix is factored once
+A 555's history holds its latch state instead. After each time point, the latch takes its next
+state from its comparators, exactly, and each step's output and discharge follow the state one
+propagation delay earlier, or at the previous time point. Within a step, the 555 is linear, so it
+can't settle halfway across a threshold, which a real latch's positive feedback never lets it do.
+
+Transient analysis uses a fixed step. Without diodes, transistors, or chips other than op-amps the matrix is factored once
 and reused for every step.
 A 1 pS `gmin` from each node to ground keeps nodes defined when they are isolated at DC,
 such as a node between two capacitors.

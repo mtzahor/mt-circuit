@@ -1,0 +1,338 @@
+{
+  "components" : [
+    {
+      "id" : "C4150935-88EA-4EEB-8E32-DF8CC86198C2",
+      "kind" : "voltageSource",
+      "name" : "V1",
+      "position" : {
+        "x" : 2,
+        "y" : 6
+      },
+      "rotation" : 1,
+      "value" : 5,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "E5CCBB85-FA83-489B-B545-79B0E5D06905",
+      "kind" : "ground",
+      "name" : "GND",
+      "position" : {
+        "x" : 2,
+        "y" : 16
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "A2B530C5-72E4-4EBE-8800-97B7F1A7E2CF",
+      "kind" : "timer",
+      "name" : "U1",
+      "position" : {
+        "x" : 20,
+        "y" : 10
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "A9BC8142-1B86-4C0E-A2B2-A0B17A03494C",
+      "kind" : "netLabel",
+      "name" : "out",
+      "position" : {
+        "x" : 28,
+        "y" : 10
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "90AFD346-E56E-4055-BBAD-2BD54BCCB8D9",
+      "kind" : "resistor",
+      "name" : "R1",
+      "position" : {
+        "x" : 12,
+        "y" : 6
+      },
+      "rotation" : 1,
+      "value" : 1000,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "0AD604A9-B866-4E51-A724-5BFE73F75793",
+      "kind" : "resistor",
+      "name" : "R2",
+      "position" : {
+        "x" : 12,
+        "y" : 10
+      },
+      "rotation" : 1,
+      "value" : 6800,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "696D9326-C629-43DD-BC03-21FD37A7FABA",
+      "kind" : "capacitor",
+      "name" : "C1",
+      "position" : {
+        "x" : 8,
+        "y" : 14
+      },
+      "rotation" : 1,
+      "value" : 1e-07,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    },
+    {
+      "id" : "BC5FE933-880A-41FC-A11D-76A26E1D8305",
+      "kind" : "netLabel",
+      "name" : "cap",
+      "position" : {
+        "x" : 9,
+        "y" : 12
+      },
+      "rotation" : 0,
+      "value" : 0,
+      "waveform" : {
+        "acMagnitude" : 1,
+        "acPhase" : 0,
+        "amplitude" : 1,
+        "delay" : 0,
+        "fallTime" : 0,
+        "frequency" : 1000,
+        "initialValue" : 0,
+        "period" : 0.001,
+        "phase" : 0,
+        "pulseWidth" : 0.0005,
+        "riseTime" : 0,
+        "shape" : "dc"
+      }
+    }
+  ],
+  "formatVersion" : 1,
+  "simulation" : {
+    "analysis" : "transient",
+    "initialConditions" : "zero",
+    "integrationMethod" : "trapezoidal",
+    "pointsPerDecade" : 50,
+    "startFrequency" : 1,
+    "stopFrequency" : 1000000,
+    "stopTime" : 0.006,
+    "timeStep" : 0
+  },
+  "wires" : [
+    {
+      "end" : {
+        "x" : 21,
+        "y" : 4
+      },
+      "id" : "091ED3AB-A6B7-4E14-A141-343153803231",
+      "start" : {
+        "x" : 2,
+        "y" : 4
+      }
+    },
+    {
+      "end" : {
+        "x" : 2,
+        "y" : 16
+      },
+      "id" : "D39B662C-97C3-4524-82FA-25EC601623B5",
+      "start" : {
+        "x" : 2,
+        "y" : 8
+      }
+    },
+    {
+      "end" : {
+        "x" : 19,
+        "y" : 16
+      },
+      "id" : "B32555D4-B746-4294-AECB-7A8766CBC395",
+      "start" : {
+        "x" : 2,
+        "y" : 16
+      }
+    },
+    {
+      "end" : {
+        "x" : 21,
+        "y" : 4
+      },
+      "id" : "A354D3E6-D476-40F5-9285-A614AB631C65",
+      "start" : {
+        "x" : 21,
+        "y" : 6
+      }
+    },
+    {
+      "end" : {
+        "x" : 19,
+        "y" : 4
+      },
+      "id" : "D33A5A89-2C0F-4CFA-A84D-4E9B21181E87",
+      "start" : {
+        "x" : 19,
+        "y" : 6
+      }
+    },
+    {
+      "end" : {
+        "x" : 19,
+        "y" : 16
+      },
+      "id" : "B6CE7D6F-CF8C-4F4F-A82A-C693CC47D0D6",
+      "start" : {
+        "x" : 19,
+        "y" : 14
+      }
+    },
+    {
+      "end" : {
+        "x" : 30,
+        "y" : 10
+      },
+      "id" : "EB42E613-CA51-4029-9EC3-0E14C7B540BF",
+      "start" : {
+        "x" : 24,
+        "y" : 10
+      }
+    },
+    {
+      "end" : {
+        "x" : 16,
+        "y" : 8
+      },
+      "id" : "7598E34B-D5AF-423B-BF5B-00A08597D4A8",
+      "start" : {
+        "x" : 12,
+        "y" : 8
+      }
+    },
+    {
+      "end" : {
+        "x" : 16,
+        "y" : 12
+      },
+      "id" : "55B67391-1DD1-40EF-980B-1A0AC46F2734",
+      "start" : {
+        "x" : 12,
+        "y" : 12
+      }
+    },
+    {
+      "end" : {
+        "x" : 16,
+        "y" : 12
+      },
+      "id" : "5F5A4965-398D-46FD-AA31-5B84986C2709",
+      "start" : {
+        "x" : 16,
+        "y" : 10
+      }
+    },
+    {
+      "end" : {
+        "x" : 8,
+        "y" : 12
+      },
+      "id" : "B589448C-F2C6-4AAC-BA8B-072AB5147D14",
+      "start" : {
+        "x" : 12,
+        "y" : 12
+      }
+    }
+  ]
+}

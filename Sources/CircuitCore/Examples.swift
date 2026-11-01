@@ -11,7 +11,7 @@ public enum Examples {
         [
             voltageDivider, rcStep, rcLowPass, rlPulse, seriesRLC, parallelRLC,
             halfWaveRectifier, diodeClipper, commonEmitterAmplifier, cmosInverter, invertingAmplifier, sallenKeyLowPass,
-            halfAdder, srLatch,
+            halfAdder, srLatch, comparatorHysteresis, timerAstable, timerOneShot, adjustableRegulator,
         ]
     }
 
@@ -344,5 +344,26 @@ public enum Examples {
     /// Two cross-coupled NOR gates. R resets the latch at the start and again at 3 ms; S sets it at 1 ms.
     public static var srLatch: Example {
         Example(name: "SR Latch", circuit: Bench.srLatch(feedback: true))
+    }
+
+    /// A Schmitt trigger: R2 gives the comparator thresholds of 2.25 V and 2.75 V, so the noise on
+    /// the 1 kHz input can't make the output chatter.
+    public static var comparatorHysteresis: Example {
+        Example(name: "Comparator with Hysteresis", circuit: Bench.schmittTrigger(feedback: 100e3))
+    }
+
+    /// f = 1.44 / ((R1 + 2·R2) · C1) ≈ 1 kHz, high 54 % of the time.
+    public static var timerAstable: Example {
+        Example(name: "555 Astable Oscillator", circuit: Bench.astable(r1: 1e3, r2: 6.8e3, c: 100e-9, stopTime: 6e-3))
+    }
+
+    /// A trigger at 1 ms starts a pulse of 1.1 · R1 · C1 = 10 ms.
+    public static var timerOneShot: Example {
+        Example(name: "555 One-Shot", circuit: Bench.monostable(r: 91e3, c: 100e-9, stopTime: 15e-3))
+    }
+
+    /// An LM317 set to 1.25 V · (1 + R2/R1) ≈ 3.3 V, riding out ± 1 V of ripple on a 9 V input.
+    public static var adjustableRegulator: Example {
+        Example(name: "LM317 Voltage Regulator", circuit: Bench.regulator(r2: 390))
     }
 }

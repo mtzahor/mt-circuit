@@ -15,6 +15,8 @@ public struct NetlistElement: Sendable, Hashable {
     public var transistor: TransistorParameters
     /// A logic gate's function and delay (the defaults for other elements).
     public var logic: LogicParameters
+    /// A comparator's or voltage regulator's parameters (the defaults for other elements).
+    public var chip: ChipParameters
 
     /// A diode's model; its saturation current is `value`.
     public var diode: DiodeModel {
@@ -40,43 +42,92 @@ public struct NetlistElement: Sendable, Hashable {
         LogicGateModel(function: logic.function, supply: value, delay: logic.delay)
     }
 
-    /// The model of a diode, transistor, or logic gate, whose currents are nonlinear in its
-    /// voltages. A logic gate's is its DC model; in a transient analysis, its output also depends
-    /// on its previous state (see `Simulator.nonlinearModels`).
+    /// A comparator's model; its supply voltage is `value`.
+    public var comparator: ComparatorModel {
+        ComparatorModel(supply: value, delay: chip.delay)
+    }
+
+    /// A voltage regulator's model; its reference voltage is `value`.
+    public var regulator: RegulatorModel {
+        RegulatorModel(reference: value, dropout: chip.dropout, adjustCurrent: chip.adjustCurrent)
+    }
+
+    /// The model of a diode, transistor, comparator, logic gate, 555 timer, or voltage regulator,
+    /// whose currents are nonlinear in its voltages. A comparator's, logic gate's, or 555's is its
+    /// DC model; in a transient analysis, its output also depends on its previous state (see
+    /// `Simulator.nonlinearModels`).
     var nonlinearModel: (any NonlinearModel)? {
         switch kind {
         case .diode: diode
         case .bjt: bjt
         case .mosfet: mosfet
+        case .comparator: comparator.step(hold: 0, drive: 1)
         case .logicGate: gate.step(hold: 0, drive: 1)
+        case .timer: TimerModel.step(state: nil)
+        case .regulator: regulator
         default: nil
         }
     }
 
+    /// Whether the element's output follows its inputs one propagation delay later, so that a
+    /// transient analysis keeps its history: a comparator, logic gate, or 555 timer.
+    var isDelayed: Bool { kind == .comparator || kind == .logicGate || kind == .timer }
+
+    /// A comparator's, logic gate's, or 555's propagation delay.
+    var delay: Double {
+        switch kind {
+        case .comparator: chip.delay
+        case .timer: TimerModel.delay
+        default: logic.delay
+        }
+    }
+
     /// Where each of the element's currents flows inside it, from one node to another. The first
-    /// is its main current: through a two-terminal element, out of an op-amp's or logic gate's
-    /// output to ground, collector to emitter (Ic) of a BJT, or drain to source (Id) of a MOSFET.
-    /// A BJT's second current is its base current, base to emitter.
+    /// is its main current: through a two-terminal element, out of an op-amp's, comparator's, or
+    /// logic gate's output to ground, collector to emitter (Ic) of a BJT, drain to source (Id) of a
+    /// MOSFET, into a 555's output and on to its GND pin, or from a regulator's input to its output.
+    /// A BJT's second current is its base current, base to emitter; a 555's are the current from
+    /// VCC into its output's pull-up, and into its discharge pin, each on to GND.
     public var branchNodes: [(from: Int, to: Int)] {
         switch kind {
-        case .opAmp, .logicGate: [(outputNode, 0)]
+        case .opAmp, .comparator, .logicGate: [(outputNode, 0)]
         case .bjt: [(nodes[0], nodes[2]), (nodes[1], nodes[2])]
         case .mosfet: [(nodes[0], nodes[2])]
+        // Pins: GND 0, OUT 2, DIS 6, VCC 7.
+        case .timer: [(nodes[2], nodes[0]), (nodes[7], nodes[0]), (nodes[6], nodes[0])]
         default: [(nodeA, nodeB)]
         }
     }
 
-    /// Names of the currents in `branchNodes`: "I(R1)", or "Ic(Q1)" and "Ib(Q1)", or "Id(M1)".
+    /// Names of the currents in `branchNodes`: "I(R1)", or "Ic(Q1)" and "Ib(Q1)", "Id(M1)", or
+    /// "I(U1)", "Iup(U1)", and "Idis(U1)".
     public var currentNames: [String] {
         switch kind {
         case .bjt: ["Ic(\(name))", "Ib(\(name))"]
         case .mosfet: ["Id(\(name))"]
+        case .timer: ["I(\(name))", "Iup(\(name))", "Idis(\(name))"]
         default: ["I(\(name))"]
         }
     }
 
+    /// Resistors inside the element, which the simulator stamps like resistors: a 555's divider,
+    /// 5 kΩ from VCC to CTRL and 10 kΩ from CTRL to GND.
+    var internalResistors: [(from: Int, to: Int, resistance: Double)] {
+        guard kind == .timer else { return [] }
+        // Pins: GND 0, CTRL 4, VCC 7.
+        return [(nodes[7], nodes[4], TimerModel.upperDivider), (nodes[4], nodes[0], TimerModel.lowerDivider)]
+    }
+
+    /// Constant currents inside the element, which the simulator stamps like current sources: a
+    /// voltage regulator's ADJ current, from its input out of its ADJ pin.
+    var internalCurrents: [(from: Int, to: Int, current: Double)] {
+        guard kind == .regulator, chip.adjustCurrent != 0 else { return [] }
+        return [(nodes[0], nodes[2], chip.adjustCurrent)]
+    }
+
     /// Number of branch currents the simulator solves for: one per voltage source, inductor,
-    /// capacitor, diode, op-amp, MOSFET, and logic gate, two per BJT, none for resistors and current sources.
+    /// capacitor, diode, op-amp, MOSFET, comparator, logic gate, and voltage regulator, two per BJT,
+    /// three per 555 timer, and none for resistors and current sources.
     var branchCount: Int {
         switch kind {
         case .resistor, .currentSource, .ground, .netLabel: 0
@@ -85,23 +136,37 @@ public struct NetlistElement: Sendable, Hashable {
     }
 
     /// Node pairs whose voltage differences control a nonlinear element's currents: a diode's
-    /// V(anode) − V(cathode), a BJT's V_BE and V_BC, a MOSFET's V_GS and V_DS, and a logic gate's
-    /// output voltage and then input voltages, relative to ground.
+    /// V(anode) − V(cathode), a BJT's V_BE and V_BC, a MOSFET's V_GS and V_DS, a logic gate's
+    /// output voltage and then input voltages, relative to ground, a comparator's output voltage
+    /// and V+ − V−, a 555's OUT, VCC, DIS, TRIG, CTRL, and RESET relative to its GND pin, and a
+    /// regulator's V(ADJ) − V(OUT) and V(IN) − V(OUT).
     var controlNodes: [(Int, Int)] {
         switch kind {
         case .bjt: [(nodes[1], nodes[2]), (nodes[1], nodes[0])]
         case .mosfet: [(nodes[1], nodes[2]), (nodes[0], nodes[2])]
         case .logicGate: ([outputNode] + inputNodes).map { ($0, 0) }
+        case .comparator: [(outputNode, 0), (nodes[0], nodes[1])]
+        // Pins: GND 0, TRIG 1, OUT 2, RESET 3, CTRL 4, DIS 6, VCC 7.
+        case .timer: [2, 7, 6, 1, 4, 3].map { (nodes[$0], nodes[0]) }
+        case .regulator: [(nodes[2], nodes[1]), (nodes[0], nodes[1])]
         default: [(nodeA, nodeB)]
         }
     }
 
-    /// Node of pin 1: the "+" / "from" terminal, a diode's anode, or an op-amp's non-inverting input.
+    /// Node of pin 1: the "+" / "from" terminal, a diode's anode, or an op-amp's or comparator's
+    /// non-inverting input.
     public var nodeA: Int { nodes[0] }
-    /// Node of pin 2: the "−" / "to" terminal, a diode's cathode, or an op-amp's inverting input.
+    /// Node of pin 2: the "−" / "to" terminal, a diode's cathode, or an op-amp's or comparator's
+    /// inverting input.
     public var nodeB: Int { nodes[1] }
-    /// Node of an op-amp's or logic gate's output: its last pin.
-    public var outputNode: Int { nodes[nodes.count - 1] }
+    /// Node of an output: an op-amp's, comparator's, or logic gate's last pin, a 555's pin 3, or a regulator's pin 2.
+    public var outputNode: Int {
+        switch kind {
+        case .timer: nodes[2]
+        case .regulator: nodes[1]
+        default: nodes[nodes.count - 1]
+        }
+    }
     /// Nodes of a logic gate's inputs: every pin but the output.
     public var inputNodes: [Int] { Array(nodes.dropLast()) }
 
@@ -145,7 +210,8 @@ public struct Netlist: Sendable {
 
     public init(circuit: Circuit) throws {
         let elementKinds: Set<ComponentKind> = [
-            .resistor, .capacitor, .inductor, .diode, .bjt, .mosfet, .voltageSource, .currentSource, .opAmp, .logicGate,
+            .resistor, .capacitor, .inductor, .diode, .bjt, .mosfet, .voltageSource, .currentSource, .opAmp,
+            .comparator, .logicGate, .timer, .regulator,
         ]
         let parts = circuit.components.filter { elementKinds.contains($0.kind) }
         guard !parts.isEmpty else { throw NetlistError.empty }
@@ -198,6 +264,27 @@ public struct Netlist: Sendable {
                 guard delay.isFinite, delay >= 0 else {
                     throw NetlistError.invalidValue(component: part.name, reason: "propagation delay must be positive, or 0 for none.")
                 }
+            case .comparator:
+                guard part.value.isFinite, part.value > 0 else {
+                    throw NetlistError.invalidValue(component: part.name, reason: "supply voltage must be greater than zero.")
+                }
+                let delay = (part.chip ?? ChipParameters()).delay
+                guard delay.isFinite, delay >= 0 else {
+                    throw NetlistError.invalidValue(component: part.name, reason: "propagation delay must be positive, or 0 for none.")
+                }
+            case .timer:
+                break
+            case .regulator:
+                let parameters = part.chip ?? ChipParameters()
+                guard part.value.isFinite, part.value > 0 else {
+                    throw NetlistError.invalidValue(component: part.name, reason: "reference voltage must be greater than zero.")
+                }
+                guard parameters.dropout.isFinite, parameters.dropout >= 0 else {
+                    throw NetlistError.invalidValue(component: part.name, reason: "dropout voltage must be positive, or 0 for none.")
+                }
+                guard parameters.adjustCurrent.isFinite, parameters.adjustCurrent >= 0 else {
+                    throw NetlistError.invalidValue(component: part.name, reason: "ADJ current must be positive, or 0 for none.")
+                }
             default:
                 guard part.value.isFinite else {
                     throw NetlistError.invalidValue(component: part.name, reason: "source value is not a number.")
@@ -238,7 +325,8 @@ public struct Netlist: Sendable {
                 nodes: nodes, value: part.value, waveform: part.waveform,
                 emissionCoefficient: part.emissionCoefficient ?? 1,
                 transistor: part.transistor ?? TransistorParameters(),
-                logic: part.logic ?? LogicParameters()))
+                logic: part.logic ?? LogicParameters(),
+                chip: part.chip ?? ChipParameters()))
         }
 
         var warnings: [String] = []
@@ -252,10 +340,11 @@ public struct Netlist: Sendable {
         // A shorted element cannot affect any node voltage, and would make the DC equations singular.
         elements.removeAll { $0.isShorted }
         for element in elements {
-            // An op-amp's or logic gate's output may drive just a labeled net, to be observed.
-            let hasOutput = element.kind == .opAmp || element.kind == .logicGate
             for (pinIndex, node) in element.nodes.enumerated() where node != 0 && terminalsOnNode[node] == 1 {
-                if hasOutput, node == element.outputNode, labeledNodes.contains(node) { continue }
+                // An output may drive just a labeled net, to be observed.
+                if element.kind.hasOutput, node == element.outputNode, labeledNodes.contains(node) { continue }
+                // A 555's divider holds its CTRL pin at ⅔ of the supply, so it may be left open.
+                if element.kind == .timer, pinIndex == 4 { continue }
                 warnings.append("\(element.kind.pinName(pinIndex, of: element.nodes.count)) of \(element.name) is not connected to anything.")
             }
         }

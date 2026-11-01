@@ -278,23 +278,59 @@ public struct Goal: Sendable {
     }
 
     /// The frequency at which the net labeled `net` oscillates from `start` to the end of a
-    /// transient analysis from rest: the average spacing of its rising crossings of the middle of its swing.
-    public static func frequency(_ net: String, after start: Double, _ requirement: Requirement, stopTime: Double) -> Goal {
-        measuring("Frequency of V(\(net))", unit: "Hz", requirement, analysis: .transient(stopTime: stopTime)) { _, result in
-            let transient = try result.transient()
-            let samples = zip(transient.time, transient.nodeVoltages[try result.node(net)]).filter { $0.0 >= start }
-            let voltages = samples.map(\.1)
-            let low = voltages.min() ?? 0, high = voltages.max() ?? 0
-            let middle = (low + high) / 2
+    /// transient analysis from rest: the average spacing of its rising crossings of the middle of
+    /// its swing. A `timeStep` of 0 is the analysis's automatic one.
+    public static func frequency(
+        _ net: String, after start: Double, _ requirement: Requirement, stopTime: Double, timeStep: Double = 0
+    ) -> Goal {
+        let analysis = SimulationSettings.transient(stopTime: stopTime, timeStep: timeStep)
+        return measuring("Frequency of V(\(net))", unit: "Hz", requirement, analysis: analysis) { _, result in
+            let (samples, middle) = try swing(net, after: start, in: result, flat: "V(\(net)) doesn't oscillate.")
             var crossings: [Double] = []
             for (before, after) in zip(samples, samples.dropFirst()) where before.1 < middle && after.1 >= middle {
-                crossings.append(before.0 + (after.0 - before.0) * (middle - before.1) / (after.1 - before.1))
+                crossings.append(crossing(before, after, at: middle))
             }
-            guard high - low > 1e-3, crossings.count >= 2 else {
-                throw Unmeasurable.absent("V(\(net)) doesn't oscillate.")
-            }
+            guard crossings.count >= 2 else { throw Unmeasurable.absent("V(\(net)) doesn't oscillate.") }
             return Double(crossings.count - 1) / (crossings.last! - crossings.first!)
         }
+    }
+
+    /// How long the first pulse of the net labeled `net` after `start` lasts, in a transient
+    /// analysis from rest: from its first rising crossing of the middle of its swing to the next
+    /// falling one. A `timeStep` of 0 is the analysis's automatic one.
+    public static func pulseWidth(
+        _ net: String, after start: Double, _ requirement: Requirement, stopTime: Double, timeStep: Double = 0
+    ) -> Goal {
+        let analysis = SimulationSettings.transient(stopTime: stopTime, timeStep: timeStep)
+        return measuring("Pulse width of V(\(net))", unit: "s", requirement, analysis: analysis) { _, result in
+            let (samples, middle) = try swing(net, after: start, in: result, flat: "V(\(net)) has no pulse.")
+            var rise: Double?
+            for (before, after) in zip(samples, samples.dropFirst()) {
+                if let rise, before.1 >= middle, after.1 < middle { return crossing(before, after, at: middle) - rise }
+                if rise == nil, before.1 < middle, after.1 >= middle { rise = crossing(before, after, at: middle) }
+            }
+            throw Unmeasurable.absent(rise == nil
+                ? "V(\(net)) has no pulse."
+                : "V(\(net))'s pulse doesn't end by t = \(SIFormat.string(stopTime, unit: "s")).")
+        }
+    }
+
+    /// The samples of the net labeled `net` from `start` on, and the middle of their swing. If they
+    /// hardly change, the goal is not met, for the reason `flat`.
+    private static func swing(
+        _ net: String, after start: Double, in result: SimulationResult, flat: String
+    ) throws -> (samples: [(Double, Double)], middle: Double) {
+        let transient = try result.transient()
+        let samples = Array(zip(transient.time, transient.nodeVoltages[try result.node(net)]).filter { $0.0 >= start })
+        let voltages = samples.map(\.1)
+        let low = voltages.min() ?? 0, high = voltages.max() ?? 0
+        guard high - low > 1e-3 else { throw Unmeasurable.absent(flat) }
+        return (samples, (low + high) / 2)
+    }
+
+    /// When the line between two samples (time, voltage) crosses `level`.
+    private static func crossing(_ before: (Double, Double), _ after: (Double, Double), at level: Double) -> Double {
+        before.0 + (after.0 - before.0) * (level - before.1) / (after.1 - before.1)
     }
 
     // MARK: Logic
@@ -454,10 +490,11 @@ extension SimulationSettings {
         return settings
     }
 
-    fileprivate static func transient(stopTime: Double) -> SimulationSettings {
+    fileprivate static func transient(stopTime: Double, timeStep: Double = 0) -> SimulationSettings {
         var settings = SimulationSettings()
         settings.analysis = .transient
         settings.stopTime = stopTime
+        settings.timeStep = timeStep
         return settings
     }
 

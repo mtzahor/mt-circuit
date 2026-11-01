@@ -62,7 +62,8 @@ private func links(in topic: DiveInTopic) -> [String] {
         let bjt = DiveIn.containers(of: "bjt").map(\.id)
         #expect(bjt.contains("op-amp"))
         #expect(bjt.contains("current-mirror"))
-        #expect(DiveIn.containers(of: "op-amp").isEmpty)
+        #expect(DiveIn.containers(of: "op-amp").map(\.id) == ["regulator"])
+        #expect(DiveIn.containers(of: "timer").isEmpty)
     }
 
     @Test(arguments: DiveIn.topics.map(\.id))

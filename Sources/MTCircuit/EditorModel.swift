@@ -11,7 +11,8 @@ enum EditorTool: Hashable, Identifiable {
     static let palette: [EditorTool] = [
         .select, .wire,
         .place(.resistor), .place(.capacitor), .place(.inductor), .place(.diode), .place(.bjt), .place(.mosfet),
-        .place(.voltageSource), .place(.currentSource), .place(.opAmp), .place(.logicGate), .place(.ground), .place(.netLabel),
+        .place(.voltageSource), .place(.currentSource), .place(.opAmp), .place(.comparator), .place(.logicGate),
+        .place(.timer), .place(.regulator), .place(.ground), .place(.netLabel),
     ]
 
     var id: String {
@@ -46,7 +47,10 @@ enum EditorTool: Hashable, Identifiable {
             case .voltageSource: "v"
             case .currentSource: "i"
             case .opAmp: "o"
+            case .comparator: "k"
             case .logicGate: "a"
+            case .timer: "t"
+            case .regulator: "p"
             case .ground: "g"
             case .netLabel: "n"
             }
@@ -59,6 +63,8 @@ enum EditorTool: Hashable, Identifiable {
         case .wire: "Click to start a wire, click to add corners; it ends on a pin or wire. Esc cancels."
         case .place(.netLabel): "Click on a wire or pin to name its net. Labels with the same name are connected."
         case .place(.logicGate): "Click to place a logic gate, then pick its function in the inspector. Space or right-click rotates. Esc returns to Select."
+        case .place(.timer): "Click to place a 555 timer. Wire VCC and RESET to the supply and GND to ground. Esc returns to Select."
+        case .place(.regulator): "Click to place a voltage regulator: input on the left, output on the right, ADJ below. Esc returns to Select."
         case let .place(kind): "Click to place a \(kind.displayName.lowercased()). Space or right-click rotates. Esc returns to Select."
         }
     }

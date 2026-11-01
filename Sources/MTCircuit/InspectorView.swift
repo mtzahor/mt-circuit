@@ -82,7 +82,8 @@ private struct ComponentInspector: View {
                         ForEach(LogicFunction.allCases, id: \.self) { Text($0.displayName).tag($0) }
                     }
                 }
-                if kind.hasValue && !kind.isSource {
+                // A 555's supply is its VCC pin, so it has no value.
+                if kind.hasValue && !kind.isSource && kind != .timer {
                     // A MOSFET's threshold may be zero or negative (depletion mode).
                     let range = kind == .mosfet ? -1e3...1e3 : 1e-18...1e18
                     SIField(label: valueLabel, unit: kind.unitSymbol, value: component.value, range: range) { value in
@@ -108,6 +109,13 @@ private struct ComponentInspector: View {
                             component.logic = parameters
                         }
                     }
+                }
+                if kind == .comparator {
+                    chipField("Propagation delay", "s", \.delay, emptyPlaceholder: "none", range: 0...1)
+                }
+                if kind == .regulator {
+                    chipField("Dropout voltage", "V", \.dropout, emptyPlaceholder: "none", range: 0...1e3)
+                    chipField("ADJ current", "A", \.adjustCurrent, emptyPlaceholder: "none", range: 0...1)
                 }
                 if kind == .diode {
                     SIField(label: "Emission coefficient", unit: "", value: component.emissionCoefficient ?? 1, range: 0.01...100) { value in
@@ -158,6 +166,26 @@ private struct ComponentInspector: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if kind == .comparator {
+                    Text("The output drives toward the supply voltage while V+ is above V−, and toward 0 V while it is below, "
+                        + "relative to ground, through \(SIFormat.string(ComparatorModel.outputResistance, unit: "Ω")); there are no power pins. "
+                        + "The inputs draw no current, and the output follows them after the propagation delay.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if kind == .timer {
+                    Text("Like an NE555 whose output swings from rail to rail: its latch sets while TRIG is below ⅓ of VCC "
+                        + "(half the CTRL voltage) and resets while THR is above ⅔ (the CTRL voltage). RESET below 0.7 V resets it. "
+                        + "While reset, the output is low and DIS connects to GND. Voltages are relative to GND.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if kind == .regulator {
+                    Text("Holds OUT the reference voltage above ADJ, like an LM317, while IN is at least the dropout voltage above OUT. "
+                        + "The ADJ current flows out of ADJ. For a fixed regulator like the 7805, ground ADJ and set the reference to 5 V.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if kind == .logicGate {
                     Text("The output drives toward 0 V or the supply voltage, relative to ground, through "
                         + "\(SIFormat.string(LogicGateModel.outputResistance, unit: "Ω")); there are no power pins. "
@@ -190,6 +218,20 @@ private struct ComponentInspector: View {
         }
     }
 
+    private func chipField(
+        _ label: String, _ unit: String, _ keyPath: WritableKeyPath<ChipParameters, Double>,
+        emptyPlaceholder: String? = nil, range: ClosedRange<Double>
+    ) -> some View {
+        let parameters = component.chip ?? ChipParameters()
+        return SIField(label: label, unit: unit, value: parameters[keyPath: keyPath], emptyPlaceholder: emptyPlaceholder, range: range) { value in
+            editor.updateComponent(component.id, "Change \(label)") { component in
+                var parameters = component.chip ?? ChipParameters()
+                parameters[keyPath: keyPath] = value
+                component.chip = parameters
+            }
+        }
+    }
+
     private var valueLabel: String {
         switch kind {
         case .resistor: "Resistance"
@@ -199,7 +241,8 @@ private struct ComponentInspector: View {
         case .bjt: "Current gain β"
         case .mosfet: "Threshold voltage"
         case .opAmp: "Open-loop gain"
-        case .logicGate: "Supply voltage"
+        case .comparator, .logicGate: "Supply voltage"
+        case .regulator: "Reference voltage"
         default: "Value"
         }
     }
@@ -326,6 +369,29 @@ private struct OperatingPointSection: View {
                     }
                     levelRow("Output", voltage, gate)
                     row("Current into output", current, "A")
+                case .comparator:
+                    row("Input (V+ − V−)", v(0, 1), "V")
+                    levelRow("Output", voltage, LogicGateModel(function: .not, supply: element.comparator.supply))
+                    row("Current into output", current, "A")
+                case .timer:
+                    // Pins: GND 0, TRIG 1, OUT 2, RESET 3, CTRL 4, THR 5, DIS 6, VCC 7.
+                    let state = TimerModel.operatingPoint([2, 7, 6, 1, 4, 3].map { v($0, 0) })
+                    LabeledContent("Latch", value: state.latch >= 0.5 ? "Set" : "Reset")
+                    row("Supply (VCC − GND)", v(7, 0), "V")
+                    row("Trigger", v(1, 0), "V")
+                    row("Threshold", v(5, 0), "V")
+                    row("Control", v(4, 0), "V")
+                    row("Output", voltage, "V")
+                    row("Current into output", current, "A")
+                    row("Current into DIS", state.discharge, "A")
+                case .regulator:
+                    // Pins: IN 0, OUT 1, ADJ 2.
+                    let dropout = element.regulator.isInDropout(
+                        input: op.nodeVoltages[element.nodes[0]], output: op.nodeVoltages[element.nodes[1]], adjust: op.nodeVoltages[element.nodes[2]])
+                    LabeledContent("State", value: dropout ? "In dropout" : "Regulating")
+                    row("Output − ADJ", v(1, 2), "V")
+                    row("Input − output", voltage, "V")
+                    row("Pass current", current, "A")
                 default:
                     row("Voltage (pin 1 − pin 2)", voltage, "V")
                     row("Current (pin 1 → pin 2)", current, "A")
@@ -334,8 +400,12 @@ private struct OperatingPointSection: View {
             } header: {
                 Text("DC Operating Point")
             } footer: {
-                if element.kind.isTransistor || element.kind == .logicGate {
+                if element.kind.isTransistor || [.comparator, .logicGate, .timer].contains(element.kind) {
                     Text("Currents are positive into the pin.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if element.kind == .regulator {
+                    Text("The pass current flows from the input to the output.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -371,7 +441,8 @@ private struct CircuitSummary: View {
     var body: some View {
         Form {
             Section("Circuit") {
-                ForEach([ComponentKind.resistor, .capacitor, .inductor, .diode, .bjt, .mosfet, .voltageSource, .currentSource, .opAmp, .logicGate], id: \.self) { kind in
+                ForEach([ComponentKind.resistor, .capacitor, .inductor, .diode, .bjt, .mosfet, .voltageSource, .currentSource,
+                         .opAmp, .comparator, .logicGate, .timer, .regulator], id: \.self) { kind in
                     let count = circuit.components.filter { $0.kind == kind }.count
                     if count > 0 {
                         LabeledContent(kind.displayName + "s", value: "\(count)")
@@ -386,8 +457,9 @@ private struct CircuitSummary: View {
                 shortcut("D", "Diode")
                 shortcut("Q M", "BJT, MOSFET")
                 shortcut("V I", "Voltage, current source")
-                shortcut("O", "Op-amp")
+                shortcut("O K", "Op-amp, comparator")
                 shortcut("A", "Logic gate")
+                shortcut("T P", "555 timer, voltage regulator")
                 shortcut("G N", "Ground, net label")
                 shortcut("Space", "Rotate")
                 shortcut("⌫", "Delete")
